@@ -598,6 +598,13 @@ export const LoginView: React.FC<LoginViewProps> = ({
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Version text directly below the card */}
+        <div className="text-center mt-3 select-none">
+          <span className="text-[10px] text-slate-600/80 dark:text-white/50 font-mono italic tracking-wide">
+            V.026.1.0.0.AB
+          </span>
+        </div>
       </main>
 
       {/* Help Modal */}
@@ -630,11 +637,6 @@ export const LoginView: React.FC<LoginViewProps> = ({
           </div>
         </div>
       )}
-
-      {/* Footer */}
-      <footer className="w-full text-center py-2 text-[10px] text-slate-700/80 dark:text-white/70 font-mono relative z-10 shrink-0">
-        UI Build V.0.1.0.026
-      </footer>
     </div>
   );
 };

@@ -175,29 +175,61 @@ app.post('/api/telegram-notify', async (req, res) => {
   }
 });
 
+// Global process safety handlers to prevent container crashes on transient errors
+process.on('uncaughtException', (err) => {
+  console.error('[App Server] Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[App Server] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // Serve frontend assets / run Vite middleware
-const isProduction = process.env.NODE_ENV === 'production';
-if (!isProduction) {
-  const { createServer } = await import('vite');
-  const vite = await createServer({
-    server: { middlewareMode: true },
-    appType: 'spa',
-  });
-  app.use(vite.middlewares);
+const distPath = path.join(__dirname, 'dist');
+const hasDist = fs.existsSync(path.join(distPath, 'index.html'));
+const isProduction =
+  process.env.NODE_ENV === 'production' ||
+  Boolean(process.env.K_SERVICE) ||
+  hasDist;
+
+if (!isProduction && process.env.NODE_ENV === 'development') {
+  try {
+    const { createServer } = await import('vite');
+    const vite = await createServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } catch (err) {
+    console.error('[App Server] Failed to initialize Vite dev server, falling back to static dist:', err);
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      const indexPath = path.join(distPath, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(200).send('<!doctype html><html><head><title>App</title></head><body>Loading application...</body></html>');
+      }
+    });
+  }
 } else {
-  const distPath = path.join(__dirname, 'dist');
+  // Production mode: Serve pre-built static assets from dist
   app.use(express.static(distPath));
   app.get('*', (req, res) => {
-    res.sendFile(path.join(distPath, 'index.html'));
+    const indexPath = path.join(distPath, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      res.status(200).send('<!doctype html><html><head><title>App</title></head><body>Loading application...</body></html>');
+    }
   });
 }
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`[App Server] Server listening on port ${PORT}`);
+const PORT = Number(process.env.PORT) || 3000;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`[App Server] Server listening on 0.0.0.0:${PORT} (production: ${isProduction})`);
 });

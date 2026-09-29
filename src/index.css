@@ -222,10 +222,23 @@ html.has-wallpaper:not(.dark) nav {
   border-color: rgba(209, 222, 213, 0.6) !important;
 }
 
-html.has-wallpaper:not(.dark) header {
+html.has-wallpaper:not(.dark) header:not(.login-header) {
   background-color: rgba(255, 255, 255, 0.92) !important;
   backdrop-filter: blur(16px) !important;
   -webkit-backdrop-filter: blur(16px) !important;
+}
+
+/* Ensure Login header is completely transparent with no box or border in all themes */
+.login-header,
+header.login-header,
+html.has-wallpaper:not(.dark) .login-header,
+html:not(.dark) .login-header {
+  background: transparent !important;
+  background-color: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 
 html.has-wallpaper:not(.dark) .bg-slate-100 {
@@ -261,7 +274,7 @@ html.has-wallpaper.dark .dark\:bg-\[\#101010\] {
 }
 
 /* Modals & Popups Glass */
-html.has-wallpaper .bg-white\/95 {
+html.has-wallpaper:not(.dark) .bg-white\/95 {
   background-color: rgba(255, 255, 255, 0.8) !important;
   backdrop-filter: blur(20px) !important;
 }
@@ -277,7 +290,7 @@ html.has-wallpaper .backdrop-blur-xl {
   -webkit-backdrop-filter: blur(20px) !important;
 }
 
-html.has-wallpaper .bg-white\/80 {
+html.has-wallpaper:not(.dark) .bg-white\/80 {
   background-color: rgba(255, 255, 255, 0.65) !important;
 }
 

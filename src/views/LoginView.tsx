@@ -204,8 +204,22 @@ export const LoginView: React.FC<LoginViewProps> = ({
   const isConnected = firestoreStatus === 'connected';
   const activeWallpaper = isDark ? appWallpaperDark : appWallpaperLight;
 
+  // Track whether this browser has visited before (first load: "Welcome", subsequent: "Welcome back")
+  const [isReturningVisitor] = useState<boolean>(() => {
+    try {
+      const visited = localStorage.getItem('has_visited_before');
+      if (visited) {
+        return true;
+      }
+      localStorage.setItem('has_visited_before', 'true');
+      return false;
+    } catch {
+      return false;
+    }
+  });
+
   return (
-    <div className="relative min-h-screen flex flex-col justify-between text-slate-900 dark:text-white transition-colors p-3 sm:p-6 select-none overflow-hidden">
+    <div className="relative min-h-screen min-h-[100dvh] flex flex-col text-slate-900 dark:text-white transition-colors p-3 sm:p-6 select-none overflow-hidden">
       {/* Background (Custom Wallpaper/Video if set, black if explicitly removed, default fluid video otherwise) */}
       {activeWallpaper ? (
         activeWallpaper.includes('video') || activeWallpaper.startsWith('data:video') ? (
@@ -229,18 +243,18 @@ export const LoginView: React.FC<LoginViewProps> = ({
         <div className="absolute inset-0 -z-10 bg-black" />
       ) : (
         <>
-          <div className="absolute inset-0 -z-20 bg-gradient-to-br from-blue-600 via-teal-400 to-sky-800 animate-fluid-gradient bg-[length:400%_400%]" />
+          <div className="absolute inset-0 -z-20 bg-gradient-to-br from-blue-600 via-teal-400 to-sky-800 dark:from-[#230940] dark:via-[#16042b] dark:to-[#0c0218] animate-fluid-gradient bg-[length:400%_400%]" />
           <video
             autoPlay
             loop
             muted
             playsInline
-            className="absolute inset-0 -z-10 w-full h-full object-cover opacity-80"
+            className="absolute inset-0 -z-10 w-full h-full object-cover opacity-80 dark:opacity-30"
             src="https://assets.mixkit.co/videos/preview/mixkit-liquid-soap-bubble-surface-abstract-background-42171-large.mp4"
           />
         </>
       )}
-      <div className="absolute inset-0 -z-10 bg-black/15 dark:bg-black/35 backdrop-blur-[1px]" />
+      <div className="absolute inset-0 -z-10 bg-black/15 dark:bg-[#130524]/60 backdrop-blur-[1px]" />
 
       <style>{`
         @keyframes fluidGradient {
@@ -294,14 +308,14 @@ export const LoginView: React.FC<LoginViewProps> = ({
         )}
       </AnimatePresence>
 
-      {/* Header: Anchors to screen edges */}
-      <header className="w-full flex items-center justify-between gap-4 py-4 px-4 md:px-12 relative z-10 transition-all">
+      {/* Header: Anchors directly to screen edges without any box/background */}
+      <header className="login-header w-full flex items-center justify-between gap-4 py-2 sm:py-4 px-2 sm:px-6 relative z-10 transition-all shrink-0">
         {/* Logo/Branding on Left */}
         <div className="flex items-center gap-3">
           {appLogo ? (
-            <img src={appLogo} alt="Logo" className="w-10 h-10 rounded-2xl object-cover shadow-sm ring-1 ring-slate-900/10 dark:ring-white/20 shrink-0" />
+            <img src={appLogo} alt="Logo" className="w-10 h-10 rounded-2xl object-cover shadow-sm ring-1 ring-white/30 dark:ring-white/20 shrink-0" />
           ) : (
-            <div className="w-10 h-10 rounded-2xl bg-[#4BA95F] flex items-center justify-center text-white font-bold text-xs shadow-sm ring-1 ring-slate-900/10 dark:ring-white/20 shrink-0">
+            <div className="w-10 h-10 rounded-2xl bg-[#4BA95F] flex items-center justify-center text-white font-bold text-xs shadow-sm ring-1 ring-white/30 dark:ring-white/20 shrink-0">
               <GraduationCap className="w-6 h-6" />
             </div>
           )}
@@ -314,11 +328,11 @@ export const LoginView: React.FC<LoginViewProps> = ({
         </div>
 
         {/* Controls on Right */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           {/* Cloud Connecting Status Dot (Icon-only) */}
-          <div className="w-10 h-10 rounded-full border border-slate-200 dark:border-white/20 bg-white/50 dark:bg-black/30 backdrop-blur-md flex items-center justify-center shadow-sm shrink-0" title={isConnected ? 'Cloud Connected' : 'Offline'}>
+          <div className="w-10 h-10 rounded-full border border-white/20 dark:border-white/10 bg-black/20 dark:bg-black/30 backdrop-blur-md flex items-center justify-center shadow-xs shrink-0" title={isConnected ? 'Cloud Connected' : 'Offline'}>
             <span
-              className={`w-2 h-2 rounded-full shadow-sm ${isConnected ? 'bg-emerald-500 ring-4 ring-emerald-500/30 animate-pulse' : 'bg-rose-500 ring-4 ring-rose-500/30'}`}
+              className={`w-2 h-2 rounded-full shadow-sm ${isConnected ? 'bg-emerald-400 ring-4 ring-emerald-400/30 animate-pulse' : 'bg-rose-500 ring-4 ring-rose-500/30'}`}
               aria-label={isConnected ? 'Cloud Connected' : 'Offline'}
             />
           </div>
@@ -327,75 +341,107 @@ export const LoginView: React.FC<LoginViewProps> = ({
           <button
             type="button"
             onClick={onToggleTheme}
-            className="w-10 h-10 rounded-full border border-slate-200 dark:border-white/20 bg-white/50 dark:bg-black/30 backdrop-blur-md text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-white/25 transition-colors cursor-pointer shadow-sm flex items-center justify-center"
+            className="w-10 h-10 rounded-full border border-white/20 dark:border-white/10 bg-black/20 dark:bg-black/30 backdrop-blur-md text-white/90 hover:text-white transition-colors cursor-pointer shadow-xs flex items-center justify-center"
             title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
             aria-label="Toggle theme"
           >
-            {isDark ? <Sun className="w-4.5 h-4.5 text-[#FEA339]" /> : <Moon className="w-4.5 h-4.5 text-slate-900" />}
+            {isDark ? <Sun className="w-4.5 h-4.5 text-[#FEA339]" /> : <Moon className="w-4.5 h-4.5 text-white/90" />}
           </button>
         </div>
       </header>
 
-      {/* Main Form Container (Glassmorphism) */}
-      <main className="max-w-xs w-full mx-auto my-auto py-2 relative z-10">
-
+      {/* Main Form Container: Centered vertically and horizontally */}
+      <main className="flex-1 flex flex-col items-center justify-center w-full max-w-[420px] mx-auto py-4 relative z-10">
         <AnimatePresence mode="wait">
           {selectedRole === null ? (
             /* Role Selection Screen */
             <motion.div
               key="role"
-              initial={{ opacity: 0, y: 8 }}
+              initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.15 }}
-              className="bg-white/90 dark:bg-[#141414]/50 backdrop-blur-xl border border-slate-200/90 dark:border-white/10 rounded-3xl p-5 shadow-2xl space-y-4 text-slate-900 dark:text-white"
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+              className="w-full space-y-4"
             >
-              <h2 className="text-base font-extrabold text-center text-slate-900 dark:text-white">
-                Sign in as
-              </h2>
+              {/* Welcome Line Above the Card */}
+              <div className="text-center space-y-1 mb-2">
+                <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white drop-shadow-xs">
+                  {isReturningVisitor ? 'Welcome back' : 'Welcome'}
+                </h1>
+                <p className="text-xs sm:text-sm text-slate-700 dark:text-white/80 font-medium">
+                  Choose how you want to continue
+                </p>
+              </div>
 
-              <div className="space-y-2.5">
-                <button
-                  type="button"
-                  onClick={() => { setSelectedRole('teacher'); setErrorMessage(''); setTeacherSetupStep(null); }}
-                  className="w-full h-12 flex items-center justify-between px-4 rounded-2xl bg-white dark:bg-black/30 hover:bg-slate-50 dark:hover:bg-black/50 border border-slate-200 dark:border-white/10 transition-all cursor-pointer font-bold text-xs sm:text-sm text-slate-900 dark:text-white shadow-md active:scale-95"
-                >
-                  <div className="flex items-center gap-3">
-                    <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-300" />
-                    <span>Teacher</span>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-slate-600 dark:text-white/80" />
-                </button>
+              {/* Card Container with soft glass look */}
+              <div className="w-full bg-white/75 dark:bg-[#160a2c]/75 backdrop-blur-xl border border-white/60 dark:border-white/10 rounded-3xl p-5 sm:p-6 shadow-xl shadow-slate-900/5 dark:shadow-2xl space-y-3.5">
+                <h2 className="text-base font-extrabold text-center text-slate-900 dark:text-white">
+                  Sign in as
+                </h2>
 
-                <button
-                  type="button"
-                  onClick={() => { setSelectedRole('student'); setErrorMessage(''); }}
-                  className="w-full h-12 flex items-center justify-between px-4 rounded-2xl bg-white dark:bg-black/30 hover:bg-slate-50 dark:hover:bg-black/50 border border-slate-200 dark:border-white/10 transition-all cursor-pointer font-bold text-xs sm:text-sm text-slate-900 dark:text-white shadow-md active:scale-95"
-                >
-                  <div className="flex items-center gap-3">
-                    <GraduationCap className="w-5 h-5 text-sky-600 dark:text-sky-300" />
-                    <span>Student</span>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-slate-600 dark:text-white/80" />
-                </button>
+                <div className="space-y-3">
+                  <button
+                    type="button"
+                    onClick={() => { setSelectedRole('teacher'); setErrorMessage(''); setTeacherSetupStep(null); }}
+                    className="group w-full flex items-center justify-between p-3.5 sm:p-4 rounded-2xl bg-white/80 dark:bg-[#251347]/70 hover:bg-white dark:hover:bg-[#31195d]/85 border border-slate-200/80 dark:border-white/10 hover:border-emerald-400/50 dark:hover:border-emerald-400/40 transition-all duration-200 cursor-pointer shadow-xs hover:shadow-md hover:-translate-y-0.5 active:scale-[0.98] text-left"
+                  >
+                    <div className="flex items-center gap-3.5 min-w-0">
+                      {/* 44px Rounded Icon Badge */}
+                      <div className="w-11 h-11 rounded-2xl bg-emerald-500/15 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/20 group-hover:scale-105 transition-transform">
+                        <ShieldCheck className="w-6 h-6" />
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-sm sm:text-base font-bold text-slate-900 dark:text-white leading-tight">
+                          Teacher
+                        </span>
+                        <span className="text-[11px] sm:text-xs text-slate-600 dark:text-purple-200/70 font-medium truncate mt-0.5">
+                          Manage classes, attendance and scores
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-slate-400 dark:text-white/60 group-hover:text-slate-800 dark:group-hover:text-white group-hover:translate-x-1 group-active:translate-x-1 transition-all shrink-0 ml-2" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => { setSelectedRole('student'); setErrorMessage(''); }}
+                    className="group w-full flex items-center justify-between p-3.5 sm:p-4 rounded-2xl bg-white/80 dark:bg-[#251347]/70 hover:bg-white dark:hover:bg-[#31195d]/85 border border-slate-200/80 dark:border-white/10 hover:border-sky-400/50 dark:hover:border-sky-400/40 transition-all duration-200 cursor-pointer shadow-xs hover:shadow-md hover:-translate-y-0.5 active:scale-[0.98] text-left"
+                  >
+                    <div className="flex items-center gap-3.5 min-w-0">
+                      {/* 44px Rounded Icon Badge */}
+                      <div className="w-11 h-11 rounded-2xl bg-sky-500/15 dark:bg-sky-500/20 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0 border border-sky-500/20 group-hover:scale-105 transition-transform">
+                        <GraduationCap className="w-6 h-6" />
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-sm sm:text-base font-bold text-slate-900 dark:text-white leading-tight">
+                          Student
+                        </span>
+                        <span className="text-[11px] sm:text-xs text-slate-600 dark:text-purple-200/70 font-medium truncate mt-0.5">
+                          View your attendance and results
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-slate-400 dark:text-white/60 group-hover:text-slate-800 dark:group-hover:text-white group-hover:translate-x-1 group-active:translate-x-1 transition-all shrink-0 ml-2" />
+                  </button>
+                </div>
               </div>
             </motion.div>
           ) : (
             /* Login Forms */
             <motion.div
               key="form"
-              initial={{ opacity: 0, y: 8 }}
+              initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.15 }}
-              className="bg-white/90 dark:bg-[#141414]/50 backdrop-blur-xl border border-slate-200/90 dark:border-white/10 rounded-3xl p-5 shadow-2xl space-y-3.5 relative text-slate-900 dark:text-white"
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+              className="w-full bg-white/80 dark:bg-[#160a2c]/75 backdrop-blur-xl border border-white/60 dark:border-white/10 rounded-3xl p-5 sm:p-6 shadow-xl dark:shadow-2xl space-y-4 relative text-slate-900 dark:text-white"
             >
               {/* Help icon on top right for student */}
               {selectedRole === 'student' && (
                 <button
                   type="button"
                   onClick={() => setShowHelpModal(true)}
-                  className="absolute right-4 top-4 p-1.5 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-white/25 dark:hover:bg-white/40 text-slate-700 dark:text-white transition-colors cursor-pointer shadow-sm"
+                  className="absolute right-4 top-4 p-1.5 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-[#251347]/80 dark:hover:bg-[#31195d] text-slate-700 dark:text-white transition-colors cursor-pointer shadow-sm"
                   title="Help"
                 >
                   <HelpCircle className="w-4 h-4 text-slate-700 dark:text-white" />
@@ -406,12 +452,12 @@ export const LoginView: React.FC<LoginViewProps> = ({
                 <button
                   type="button"
                   onClick={() => { setSelectedRole(null); setErrorMessage(''); setTeacherSetupStep(null); }}
-                  className="p-1.5 rounded-lg text-slate-800 dark:text-white/90 hover:bg-slate-100 dark:hover:bg-white/25 transition-colors cursor-pointer"
+                  className="p-1.5 rounded-xl text-slate-800 dark:text-white/90 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer"
                   aria-label="Back"
                 >
                   <ArrowLeft className="w-4 h-4 text-slate-800 dark:text-white" />
                 </button>
-                <h2 className="text-sm font-black text-slate-900 dark:text-white">
+                <h2 className="text-base font-black text-slate-900 dark:text-white">
                   {selectedRole === 'teacher' ? 'Teacher' : 'Student'}
                 </h2>
                 <div className={selectedRole === 'student' ? 'w-6' : 'w-6'} />
@@ -432,7 +478,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                       value={setupName}
                       onChange={e => setSetupName(e.target.value)}
                       placeholder="Teacher Name"
-                      className="w-full h-11 px-3 bg-white dark:bg-black/30 border border-slate-300 dark:border-white/25 rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-300 placeholder:italic focus:outline-none focus:border-blue-500 font-medium"
+                      className="w-full h-11 px-3 bg-white dark:bg-[#0b0318]/70 border border-slate-300 dark:border-white/15 rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-purple-200/50 placeholder:italic focus:outline-none focus:border-blue-500 font-medium"
                     />
                     <input
                       type={showSetupPassword ? 'text' : 'password'}
@@ -441,7 +487,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                       value={setupPassword}
                       onChange={e => setSetupPassword(e.target.value)}
                       placeholder="Password (min 8 chars)"
-                      className="w-full h-11 px-3 bg-white dark:bg-black/30 border border-slate-300 dark:border-white/25 rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-300 placeholder:italic focus:outline-none focus:border-blue-500 font-medium"
+                      className="w-full h-11 px-3 bg-white dark:bg-[#0b0318]/70 border border-slate-300 dark:border-white/15 rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-purple-200/50 placeholder:italic focus:outline-none focus:border-blue-500 font-medium"
                     />
                     <input
                       type={showSetupPassword ? 'text' : 'password'}
@@ -450,7 +496,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                       value={setupConfirmPassword}
                       onChange={e => setSetupConfirmPassword(e.target.value)}
                       placeholder="Confirm Password"
-                      className="w-full h-11 px-3 bg-white dark:bg-black/30 border border-slate-300 dark:border-white/25 rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-300 placeholder:italic focus:outline-none focus:border-blue-500 font-medium"
+                      className="w-full h-11 px-3 bg-white dark:bg-[#0b0318]/70 border border-slate-300 dark:border-white/15 rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-purple-200/50 placeholder:italic focus:outline-none focus:border-blue-500 font-medium"
                     />
                     <button
                       type="submit"
@@ -466,7 +512,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                       type="button"
                       onClick={handleGoogleSignIn}
                       disabled={isSubmitting}
-                      className="w-full h-11 bg-white hover:bg-slate-50 dark:bg-white/25 dark:hover:bg-white/35 border border-slate-200/90 dark:border-white/30 text-slate-800 dark:text-white font-semibold rounded-xl text-xs transition-transform active:scale-95 shadow-md flex items-center justify-center gap-2.5 cursor-pointer backdrop-blur-md"
+                      className="w-full h-11 bg-white hover:bg-slate-50 dark:bg-[#251347]/70 dark:hover:bg-[#31195d]/85 border border-slate-200/90 dark:border-white/15 text-slate-800 dark:text-white font-semibold rounded-xl text-xs transition-transform active:scale-95 shadow-md flex items-center justify-center gap-2.5 cursor-pointer backdrop-blur-md"
                     >
                       <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                         <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -477,14 +523,14 @@ export const LoginView: React.FC<LoginViewProps> = ({
                       <span>Continue with Google</span>
                     </button>
 
-                    <div className="pt-2 border-t border-slate-200 dark:border-white/20">
+                    <div className="pt-2 border-t border-slate-200 dark:border-white/10">
                       <form onSubmit={handleTeacherPasswordSubmit} className="space-y-2.5">
                         <input
                           type="text"
                           value={teacherEmailOrName}
                           onChange={e => setTeacherEmailOrName(e.target.value)}
                           placeholder="Name or Email"
-                          className="w-full h-10 px-3 bg-white dark:bg-black/30 border border-slate-300 dark:border-white/25 rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-300 placeholder:italic focus:outline-none focus:border-blue-500 font-medium"
+                          className="w-full h-10 px-3 bg-white dark:bg-[#0b0318]/70 border border-slate-300 dark:border-white/15 rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-purple-200/50 placeholder:italic focus:outline-none focus:border-blue-500 font-medium"
                         />
                         <div className="relative">
                           <input
@@ -492,7 +538,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                             value={teacherPassword}
                             onChange={e => setTeacherPassword(e.target.value)}
                             placeholder="Password"
-                            className="w-full h-10 pl-3 pr-9 bg-white dark:bg-black/30 border border-slate-300 dark:border-white/25 rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-300 placeholder:italic focus:outline-none focus:border-blue-500 font-mono"
+                            className="w-full h-10 pl-3 pr-9 bg-white dark:bg-[#0b0318]/70 border border-slate-300 dark:border-white/15 rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-purple-200/50 placeholder:italic focus:outline-none focus:border-blue-500 font-mono"
                           />
                           <button
                             type="button"
@@ -505,7 +551,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                         <button
                           type="submit"
                           disabled={isSubmitting}
-                          className="w-full h-10 bg-slate-900/90 hover:bg-slate-900 text-white font-semibold rounded-xl text-xs transition-transform active:scale-95 shadow-lg cursor-pointer"
+                          className="w-full h-10 bg-slate-900 hover:bg-slate-800 dark:bg-purple-600 dark:hover:bg-purple-500 text-white font-semibold rounded-xl text-xs transition-transform active:scale-95 shadow-lg cursor-pointer"
                         >
                           Login
                         </button>
@@ -521,7 +567,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                     value={studentIdentifier}
                     onChange={e => setStudentIdentifier(e.target.value)}
                     placeholder="Name or ID"
-                    className="w-full h-11 px-3 bg-white dark:bg-black/30 border border-slate-300 dark:border-white/25 rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-300 placeholder:italic focus:outline-none focus:border-blue-500 font-medium"
+                    className="w-full h-11 px-3 bg-white dark:bg-[#0b0318]/70 border border-slate-300 dark:border-white/15 rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-purple-200/50 placeholder:italic focus:outline-none focus:border-blue-500 font-medium"
                   />
                   <div className="relative">
                     <input
@@ -530,7 +576,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                       value={studentPassword}
                       onChange={e => setStudentPassword(e.target.value)}
                       placeholder="Password"
-                      className="w-full h-11 pl-3 pr-10 bg-white dark:bg-black/30 border border-slate-300 dark:border-white/25 rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-300 placeholder:italic focus:outline-none focus:border-blue-500 font-mono"
+                      className="w-full h-11 pl-3 pr-10 bg-white dark:bg-[#0b0318]/70 border border-slate-300 dark:border-white/15 rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-purple-200/50 placeholder:italic focus:outline-none focus:border-blue-500 font-mono"
                     />
                     <button
                       type="button"
@@ -572,7 +618,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
               </button>
             </div>
             <p className="text-xs text-slate-200 leading-relaxed font-medium">
-              "Don't know how to login? You must have both the Login Name or your student ID and Student Login Code to login and use your app, if you have questions contact your Homeroom Teacher."
+              &quot;Don&apos;t know how to login? You must have both the Login Name or your student ID and Student Login Code to login and use your app, if you have questions contact your Homeroom Teacher.&quot;
             </p>
             <button
               type="button"
@@ -586,7 +632,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
       )}
 
       {/* Footer */}
-      <footer className="max-w-md w-full mx-auto text-center py-2 text-[10px] text-white/80 font-mono relative z-10">
+      <footer className="w-full text-center py-2 text-[10px] text-slate-700/80 dark:text-white/70 font-mono relative z-10 shrink-0">
         UI Build V.0.1.0.026
       </footer>
     </div>

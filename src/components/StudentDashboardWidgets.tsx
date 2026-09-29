@@ -30,7 +30,16 @@ import {
   StudentItem,
   ClassItem,
 } from '../types';
-import { todayISO, attOf, thisMonth, computeResults, round1, monthName } from '../utils/helpers';
+import {
+  todayISO,
+  attOf,
+  thisMonth,
+  computeResults,
+  round1,
+  monthName,
+  getAttendanceCredit,
+  isSessionAfterEnrollment,
+} from '../utils/helpers';
 import { getLevelAndProgressFromXp } from '../utils/gamification';
 
 interface StudentDashboardWidgetsProps {
@@ -66,12 +75,20 @@ export const StudentDashboardWidgets: React.FC<StudentDashboardWidgetsProps> = (
   const myResult = periodResults?.rows.find(r => r.student.id === student.id);
 
   // Attendance rate
-  const studentAtt = (state.attendance || []).filter(a => a.records && a.records[student.id]);
+  const classDuration = currentClassObj?.duration || 60;
+  const studentAtt = (state.attendance || []).filter(
+    a => (!activeClassId || a.classId === activeClassId) && isSessionAfterEnrollment(a.date, student) && a.records && a.records[student.id]?.status
+  );
   const totalAttSessions = studentAtt.length;
-  const presentCount = studentAtt.filter(
-    a => a.records[student.id].status === 'P' || a.records[student.id].status === 'L'
-  ).length;
-  const attRate = totalAttSessions > 0 ? Math.round((presentCount / totalAttSessions) * 100) : 100;
+  let totalCredit = 0;
+  let presentCount = 0;
+  studentAtt.forEach(a => {
+    const rec = a.records[student.id];
+    if (rec.status === 'P' || rec.status === 'L') presentCount++;
+    totalCredit += getAttendanceCredit(rec, classDuration);
+  });
+  const attRate = totalAttSessions > 0 ? round1((totalCredit / totalAttSessions) * 100) : null;
+  const attRateDisplay = attRate !== null ? `${attRate}%` : '—';
 
   // Streak/Level Calculations
   const xp = student.xp || 0;
@@ -90,7 +107,7 @@ export const StudentDashboardWidgets: React.FC<StudentDashboardWidgetsProps> = (
           <div className="w-10 h-10 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
             <CheckSquare className="w-5 h-5 animate-pulse-slow" />
           </div>
-          <span className="text-sm font-black text-slate-900 dark:text-white block leading-tight">{attRate}%</span>
+          <span className="text-sm font-black text-slate-900 dark:text-white block leading-tight">{attRateDisplay}</span>
           <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5 leading-none">Attendance</span>
         </button>
 
@@ -103,7 +120,9 @@ export const StudentDashboardWidgets: React.FC<StudentDashboardWidgetsProps> = (
           <div className="w-10 h-10 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
             <Trophy className="w-5 h-5" />
           </div>
-          <span className="text-sm font-black text-slate-900 dark:text-white block leading-tight">#{myResult?.rank || 1}</span>
+          <span className="text-sm font-black text-slate-900 dark:text-white block leading-tight">
+            {myResult?.hasData && myResult?.rank !== null ? `#${myResult.rank}` : '—'}
+          </span>
           <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5 leading-none">Rank</span>
         </button>
 
@@ -116,7 +135,9 @@ export const StudentDashboardWidgets: React.FC<StudentDashboardWidgetsProps> = (
           <div className="w-10 h-10 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
             <Clock className="w-5 h-5" />
           </div>
-          <span className="text-sm font-black text-slate-900 dark:text-white block leading-tight truncate max-w-full">{currentClassObj?.timeFrom || '19:00'}</span>
+          <span className="text-sm font-black text-slate-900 dark:text-white block leading-tight truncate max-w-full">
+            {currentClassObj?.startTime || currentClassObj?.timeFrom || '20:00'}
+          </span>
           <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5 leading-none">Class Schedule</span>
         </button>
       </div>
@@ -132,7 +153,9 @@ export const StudentDashboardWidgets: React.FC<StudentDashboardWidgetsProps> = (
           <div className="w-10 h-10 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
             <Trophy className="w-5 h-5 text-purple-500" />
           </div>
-          <span className="text-sm font-black text-slate-900 dark:text-white block leading-tight">{myResult?.total || 100} Pts</span>
+          <span className="text-sm font-black text-slate-900 dark:text-white block leading-tight">
+            {myResult?.hasData ? `${myResult.total} Pts` : '—'}
+          </span>
           <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5 leading-none">Score</span>
         </button>
 
@@ -213,7 +236,7 @@ export const StudentDashboardWidgets: React.FC<StudentDashboardWidgetsProps> = (
                 <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-xs flex items-start gap-2">
                   <Sparkles className="w-4 h-4 shrink-0 mt-0.5" />
                   <p className="leading-relaxed">
-                    Your attendance score is calculated with a base score of 100. Maintain high attendance to preserve bonus ranks!
+                    Attendance rate is calculated as total earned credit divided by sessions held so far this month (On-time: 1.0, Late: 0.75, Very late: 0.5, Excused: 0.5, Unexcused: 0).
                   </p>
                 </div>
               </div>
@@ -246,7 +269,9 @@ export const StudentDashboardWidgets: React.FC<StudentDashboardWidgetsProps> = (
                 <div className="grid grid-cols-2 gap-3">
                   <div className="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-100 dark:border-slate-800">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Class Rank</span>
-                    <span className="text-lg font-black text-slate-900 dark:text-white block mt-0.5">#{myResult?.rank || 1}</span>
+                    <span className="text-lg font-black text-slate-900 dark:text-white block mt-0.5">
+                      {myResult?.hasData && myResult?.rank !== null ? `#${myResult.rank}` : '—'}
+                    </span>
                   </div>
                   <div className="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-100 dark:border-slate-800">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Enrolled</span>

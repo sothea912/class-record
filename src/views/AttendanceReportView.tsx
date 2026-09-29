@@ -13,7 +13,18 @@ import {
   Trash2,
 } from 'lucide-react';
 import { AppState, AttendanceStatus, AttendanceSession } from '../types';
-import { attOf, monthName, round1, studentsOf, thisMonth } from '../utils/helpers';
+import {
+  attOf,
+  calcJoinedAtFromMinutes,
+  calcMinutesLateFromJoinedAt,
+  getAttendanceCredit,
+  getLatenessInfo,
+  isSessionAfterEnrollment,
+  monthName,
+  round1,
+  studentsOf,
+  thisMonth,
+} from '../utils/helpers';
 import { downloadWordDoc } from '../utils/wordExport';
 import { downloadAttendanceExcel } from '../utils/excelExport';
 import { Modal } from '../components/Modal';
@@ -37,12 +48,17 @@ export const AttendanceReportView: React.FC<AttendanceReportViewProps> = ({
   const [selectedMonth, setSelectedMonth] = useState<string>(thisMonth());
   const [selectedDay, setSelectedDay] = useState<string>('');
 
+  const classStartTime = currentClass?.startTime || currentClass?.timeFrom || '20:00';
+  const classDuration = currentClass?.duration || 60;
+
   const [editingCell, setEditingCell] = useState<{
     studentId: string;
     studentName: string;
     date: string;
     status: AttendanceStatus | '';
     reason: string;
+    minutesLate?: number;
+    joinedAt?: string;
   } | null>(null);
 
   const [confirmDelete, setConfirmDelete] = useState<boolean>(false);
@@ -53,21 +69,24 @@ export const AttendanceReportView: React.FC<AttendanceReportViewProps> = ({
     studentId: string,
     studentName: string,
     dateStr: string,
-    rec?: { status?: AttendanceStatus; reason?: string }
+    rec?: { status?: AttendanceStatus; reason?: string; minutesLate?: number; joinedAt?: string }
   ) => {
+    const mins = rec?.status === 'L' ? (rec.minutesLate ?? 10) : 0;
     setEditingCell({
       studentId,
       studentName,
       date: dateStr,
       status: rec?.status || '',
       reason: rec?.reason || '',
+      minutesLate: mins,
+      joinedAt: rec?.joinedAt || (rec?.status === 'L' ? calcJoinedAtFromMinutes(classStartTime, mins) : ''),
     });
     setConfirmDelete(false);
   };
 
   const handleSaveEdit = () => {
     if (!editingCell) return;
-    const { studentId, date, status, reason } = editingCell;
+    const { studentId, date, status, reason, minutesLate, joinedAt } = editingCell;
 
     // Find existing session for this date & class
     const session = state.attendance.find(a => a.classId === currentClass.id && a.date === date);
@@ -83,6 +102,8 @@ export const AttendanceReportView: React.FC<AttendanceReportViewProps> = ({
       updatedRecords[studentId] = {
         status,
         reason: (status === 'E' || status === 'U' || status === 'L') ? reason : '',
+        minutesLate: status === 'L' ? (minutesLate ?? 10) : status === 'P' ? 0 : undefined,
+        joinedAt: status === 'L' ? joinedAt : undefined,
       };
     }
 
@@ -160,23 +181,35 @@ export const AttendanceReportView: React.FC<AttendanceReportViewProps> = ({
   const studentRows = list.map(s => {
     const k: Record<AttendanceStatus, number> = { P: 0, L: 0, E: 0, U: 0 };
     const reasons: string[] = [];
+    let totalCredit = 0;
+    let sessionsHeld = 0;
+
     days.forEach(d => {
+      if (!isSessionAfterEnrollment(d.date, s)) return;
       const r = (d.records || {})[s.id];
       if (r && r.status) {
-        k[r.status]++;
+        sessionsHeld++;
+        if (k[r.status] !== undefined) k[r.status]++;
+        totalCredit += getAttendanceCredit(r, classDuration);
         if (r.reason) reasons.push(`${d.date.slice(8)}/${d.date.slice(5, 7)}: ${r.reason}`);
       }
     });
+
     tot.P += k.P;
     tot.L += k.L;
     tot.E += k.E;
     tot.U += k.U;
-    const marked = k.P + k.L + k.E + k.U;
-    const rate = marked ? Math.round(((k.P + k.L) / marked) * 100) : 0;
+
+    const rate = sessionsHeld > 0 ? round1((totalCredit / sessionsHeld) * 100) : null;
+    const ratePct = rate !== null ? `${rate}%` : '—';
+
     return {
       student: s,
       k,
+      totalCredit: round1(totalCredit),
+      sessionsHeld,
       rate,
+      ratePct,
       reasons,
     };
   });
@@ -194,7 +227,7 @@ export const AttendanceReportView: React.FC<AttendanceReportViewProps> = ({
           <td class="num">${r.k.L}</td>
           <td class="num">${r.k.E}</td>
           <td class="num">${r.k.U}</td>
-          <td class="num"><b>${r.rate}%</b></td>
+          <td class="num"><b>${r.ratePct}</b></td>
           <td class="muted">${r.reasons.join(' · ') || '—'}</td>
         </tr>`
       )
@@ -512,9 +545,13 @@ export const AttendanceReportView: React.FC<AttendanceReportViewProps> = ({
                       <td className="py-3 px-4 text-right tabular-nums font-medium text-indigo-600">{r.k.E}</td>
                       <td className="py-3 px-4 text-right tabular-nums font-medium text-rose-600">{r.k.U}</td>
                       <td className="py-3 px-4 text-right tabular-nums font-bold">
-                        <span className={r.rate >= 80 ? 'text-emerald-600' : 'text-rose-600'}>
-                          {r.rate}%
-                        </span>
+                        {r.rate !== null ? (
+                          <span className={r.rate >= 80 ? 'text-emerald-600' : 'text-rose-600'}>
+                            {r.rate}%
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 font-mono">—</span>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-slate-500 dark:text-slate-400 text-[11px] max-w-xs truncate">
                         {r.reasons.length > 0 ? r.reasons.join(' · ') : '—'}
@@ -691,6 +728,98 @@ export const AttendanceReportView: React.FC<AttendanceReportViewProps> = ({
                   })}
                 </div>
               </div>
+
+              {/* Lateness settings if Late */}
+              {editingCell.status === 'L' && (
+                <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-xl space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] font-bold text-amber-900 dark:text-amber-200">
+                        Minutes late:
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={240}
+                        value={editingCell.minutesLate ?? 10}
+                        onChange={e => {
+                          const mins = Number(e.target.value);
+                          setEditingCell(prev =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  minutesLate: mins,
+                                  joinedAt: calcJoinedAtFromMinutes(classStartTime, mins),
+                                }
+                              : null
+                          );
+                        }}
+                        className="w-16 px-2 py-1 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 rounded-lg text-xs font-bold text-amber-950 dark:text-amber-100 focus:outline-none font-mono"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      {[5, 10, 15, 20, 30].map(chip => (
+                        <button
+                          key={chip}
+                          type="button"
+                          onClick={() =>
+                            setEditingCell(prev =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    minutesLate: chip,
+                                    joinedAt: calcJoinedAtFromMinutes(classStartTime, chip),
+                                  }
+                                : null
+                            )
+                          }
+                          className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-all ${
+                            (editingCell.minutesLate ?? 10) === chip
+                              ? 'bg-amber-500 text-white shadow-xs'
+                              : 'bg-white dark:bg-slate-800 text-amber-900 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 hover:bg-amber-100 dark:hover:bg-slate-700'
+                          }`}
+                        >
+                          {chip}m
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-amber-200/60 dark:border-amber-900/40">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-500 dark:text-slate-400">Joined at:</span>
+                      <input
+                        type="time"
+                        value={editingCell.joinedAt || calcJoinedAtFromMinutes(classStartTime, editingCell.minutesLate ?? 10)}
+                        onChange={e => {
+                          const time = e.target.value;
+                          const mins = calcMinutesLateFromJoinedAt(classStartTime, time);
+                          setEditingCell(prev =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  joinedAt: time,
+                                  minutesLate: mins,
+                                }
+                              : null
+                          );
+                        }}
+                        className="px-2 py-0.5 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 rounded text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none font-mono"
+                      />
+                    </div>
+
+                    {(() => {
+                      const info = getLatenessInfo(editingCell.minutesLate ?? 10, classDuration);
+                      return (
+                        <span className={`px-2.5 py-0.5 rounded-md font-bold text-xs ${info.badgeColor}`}>
+                          {info.label} ({info.credit} credit)
+                        </span>
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
 
               {/* Associated Note/Reason (shown for Late, Excused, Unexcused) */}
               {(editingCell.status === 'E' || editingCell.status === 'U' || editingCell.status === 'L') && (

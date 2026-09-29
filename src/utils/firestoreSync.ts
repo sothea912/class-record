@@ -9,6 +9,7 @@ import {
   where,
   getDoc,
   serverTimestamp,
+  writeBatch,
 } from 'firebase/firestore';
 import { initializeApp, deleteApp } from 'firebase/app';
 import {
@@ -41,6 +42,7 @@ import {
   AppState,
   AttendanceSession,
   AuthUser,
+  ClassCancellationItem,
   ClassItem,
   ClassworkTask,
   CustomRecordItem,
@@ -76,6 +78,7 @@ export const COLLECTIONS = {
   STUDENT_PROGRESS: 'studentProgress',
   ACCOUNT_REQUESTS: 'account_requests',
   CLASS_JOINS: 'class_joins',
+  CLASS_NOTICES: 'classNotices',
 } as const;
 
 /**
@@ -2080,6 +2083,23 @@ export function subscribeToFirestore(
   );
   unsubs.push(unsubClassJoins);
 
+  // 14. Class Notices / Cancellations
+  const unsubClassNotices = onSnapshot(
+    collection(db, COLLECTIONS.CLASS_NOTICES),
+    snapshot => {
+      const classCancellations: any[] = [];
+      snapshot.forEach(d => {
+        classCancellations.push(d.data());
+      });
+      console.log(`[Firestore Live] Class Notices synced (${classCancellations.length} notices)`);
+      onUpdate(prev => ({ ...prev, classCancellations }));
+    },
+    error => {
+      console.warn('[Firestore] Class Notices listener error:', error);
+    }
+  );
+  unsubs.push(unsubClassNotices);
+
   return () => {
     unsubs.forEach(u => u());
   };
@@ -2321,5 +2341,52 @@ export function compressImageToDataString(file: File): Promise<string> {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+/**
+ * Save class cancellation or reschedule notice to Firestore
+ */
+export async function syncSaveClassNotice(notice: ClassCancellationItem): Promise<void> {
+  const path = `${COLLECTIONS.CLASS_NOTICES}/${notice.id}`;
+  try {
+    await setDoc(doc(db, COLLECTIONS.CLASS_NOTICES, notice.id), sanitizeForFirestore({
+      ...notice,
+      type: notice.makeupDate ? 'reschedule' : 'cancel',
+      createdBy: auth.currentUser?.uid || 'teacher',
+    }));
+    console.log(`[Firestore] Saved class notice successfully to: ${path}`);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+/**
+ * Delete a class notice from Firestore
+ */
+export async function syncDeleteClassNotice(noticeId: string): Promise<void> {
+  const path = `${COLLECTIONS.CLASS_NOTICES}/${noticeId}`;
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.CLASS_NOTICES, noticeId));
+    console.log(`[Firestore] Deleted class notice successfully: ${path}`);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+
+/**
+ * Bulk delete multiple class notices using a batch write in Firestore
+ */
+export async function syncDeleteMultipleClassNotices(noticeIds: string[]): Promise<void> {
+  const batch = writeBatch(db);
+  for (const id of noticeIds) {
+    batch.delete(doc(db, COLLECTIONS.CLASS_NOTICES, id));
+  }
+  const path = `classNotices_bulk_delete`;
+  try {
+    await batch.commit();
+    console.log(`[Firestore] Bulk deleted ${noticeIds.length} class notices successfully.`);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+  }
 }
 

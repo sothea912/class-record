@@ -3,6 +3,8 @@ export type AttendanceStatus = 'P' | 'L' | 'E' | 'U';
 export interface AttendanceRecord {
   status: AttendanceStatus;
   reason?: string;
+  minutesLate?: number;
+  joinedAt?: string;
 }
 
 export interface AttendanceSession {
@@ -19,6 +21,8 @@ export interface ClassItem {
   level?: string;
   timeFrom?: string;
   timeTo?: string;
+  startTime?: string;
+  duration?: number; // duration in minutes (default 60)
   days?: string;
   room?: string;
   meetLink?: string;
@@ -212,6 +216,17 @@ export interface AccountRequest {
   reason?: string;
 }
 
+export interface ClassCancellationItem {
+  id: string;
+  classId: string;
+  originalDate: string; // YYYY-MM-DD
+  makeupDate?: string; // YYYY-MM-DD
+  reason: string;
+  markCancelled: boolean;
+  createdAt: string;
+  dismissedByStudents?: string[];
+}
+
 export interface AppState {
   profile: UserProfile;
   teacherSecurity?: TeacherSecurity;
@@ -228,6 +243,7 @@ export interface AppState {
   studentProgress?: StudentProgress[];
   accountRequests?: AccountRequest[];
   classJoins?: ClassJoinRecord[];
+  classCancellations?: ClassCancellationItem[];
   telegramConfig?: {
     chatId: string;
     username?: string;
@@ -247,15 +263,20 @@ export interface StudentRankResult {
     U: number;
     score: number;
     max: number;
+    totalCredit: number;
+    sessionsHeld: number;
+    rate: number | null;
+    ratePct: string;
   };
   total: number;
   max: number;
-  pct: number;
+  pct: number | null;
   avg: number;
-  grade: 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
-  status: 'Pass' | 'Fail';
-  rank: number;
+  grade: string;
+  status: string;
+  rank: number | null;
   of: number;
+  hasData?: boolean;
 }
 
 export type NavView =
@@ -266,6 +287,7 @@ export type NavView =
   | 'attend'
   | 'attreport'
   | 'permits'
+  | 'notices'
   | 'subjects'
   | 'classwork'
   | 'results'

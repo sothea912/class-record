@@ -11,15 +11,28 @@ import {
   List,
   Sparkles,
   Search,
+  CalendarX,
 } from 'lucide-react';
-import { AppState, AttendanceRecord, AttendanceSession, AttendanceStatus } from '../types';
-import { attKey, attOf, sortStudents, studentsOf, todayISO } from '../utils/helpers';
+import { AppState, AttendanceRecord, AttendanceSession, AttendanceStatus, ClassCancellationItem } from '../types';
+import {
+  attKey,
+  attOf,
+  calcJoinedAtFromMinutes,
+  calcMinutesLateFromJoinedAt,
+  getLatenessInfo,
+  sortStudents,
+  studentsOf,
+  todayISO,
+  uid,
+} from '../utils/helpers';
+import { Modal } from '../components/Modal';
 
 interface AttendanceViewProps {
   state: AppState;
   selectedClassId: string;
   onSelectClassId: (id: string) => void;
   onSaveAttendance: (session: AttendanceSession) => void;
+  onSaveCancellation: (item: ClassCancellationItem) => void;
 }
 
 export const AttendanceView: React.FC<AttendanceViewProps> = ({
@@ -27,12 +40,50 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
   selectedClassId,
   onSelectClassId,
   onSaveAttendance,
+  onSaveCancellation,
 }) => {
   const currentClass = state.classes.find(c => c.id === selectedClassId) || state.classes[0];
   const [date, setDate] = useState<string>(todayISO());
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   const [filterMode, setFilterMode] = useState<'all' | 'unmarked' | 'absent'>('all');
   const [search, setSearch] = useState('');
+
+  // Cancel / Reschedule Modal State
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [cancelOriginalDate, setCancelOriginalDate] = useState(date);
+  const [cancelMakeupDate, setCancelMakeupDate] = useState('');
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelMarkCancelled, setCancelMarkCancelled] = useState(true);
+
+  const handleSaveCancellation = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentClass) return;
+    if (!cancelOriginalDate) {
+      alert('Please specify the original class date.');
+      return;
+    }
+    if (!cancelReason.trim()) {
+      alert('Please provide a reason / message for students.');
+      return;
+    }
+
+    const item: ClassCancellationItem = {
+      id: uid('cancel'),
+      classId: currentClass.id,
+      originalDate: cancelOriginalDate,
+      makeupDate: cancelMakeupDate.trim() || undefined,
+      reason: cancelReason.trim(),
+      markCancelled: cancelMarkCancelled,
+      createdAt: new Date().toISOString(),
+    };
+
+    onSaveCancellation(item);
+    setIsCancelModalOpen(false);
+    alert('Class cancellation / reschedule notice published to students successfully!');
+  };
+
+  const classStartTime = currentClass?.startTime || currentClass?.timeFrom || '20:00';
+  const classDuration = currentClass?.duration || 60;
 
   // Working draft records for the selected class & date
   const existingSession = currentClass ? attOf(currentClass.id, date, state) : null;
@@ -59,6 +110,8 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
           : '';
         initialRecords[j.studentId] = {
           status: isLate ? 'L' : 'P',
+          minutesLate: isLate ? j.minutesLate : 0,
+          joinedAt: timeFormatted || calcJoinedAtFromMinutes(classStartTime, j.minutesLate ?? 0),
           reason: isLate ? `Self check-in at ${timeFormatted} (+${j.minutesLate}m late)` : `Self check-in at ${timeFormatted}`,
         };
       }
@@ -81,13 +134,58 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
   const pastSessions = [...new Set(state.attendance.filter(a => a.classId === currentClass.id).map(a => a.date))].sort().reverse();
 
   const handleSetStatus = (studentId: string, status: AttendanceStatus) => {
-    setRecords(prev => ({
-      ...prev,
-      [studentId]: {
-        ...prev[studentId],
+    setRecords(prev => {
+      const existing = prev[studentId] || { status: 'P' };
+      const nextRec: AttendanceRecord = {
+        ...existing,
         status,
-      },
-    }));
+      };
+      if (status === 'P') {
+        nextRec.minutesLate = 0;
+      } else if (status === 'L') {
+        if (nextRec.minutesLate === undefined || nextRec.minutesLate === null) {
+          nextRec.minutesLate = 10;
+          nextRec.joinedAt = calcJoinedAtFromMinutes(classStartTime, 10);
+        }
+      }
+      return {
+        ...prev,
+        [studentId]: nextRec,
+      };
+    });
+  };
+
+  const handleSetMinutesLate = (studentId: string, minutes: number) => {
+    const mins = Math.max(0, minutes);
+    setRecords(prev => {
+      const existing = prev[studentId] || { status: 'L' as AttendanceStatus };
+      const joinedAt = calcJoinedAtFromMinutes(classStartTime, mins);
+      return {
+        ...prev,
+        [studentId]: {
+          ...existing,
+          status: 'L',
+          minutesLate: mins,
+          joinedAt,
+        },
+      };
+    });
+  };
+
+  const handleSetJoinedAt = (studentId: string, joinedAtTime: string) => {
+    const mins = calcMinutesLateFromJoinedAt(classStartTime, joinedAtTime);
+    setRecords(prev => {
+      const existing = prev[studentId] || { status: 'L' as AttendanceStatus };
+      return {
+        ...prev,
+        [studentId]: {
+          ...existing,
+          status: 'L',
+          minutesLate: mins,
+          joinedAt: joinedAtTime,
+        },
+      };
+    });
   };
 
   const handleSetReason = (studentId: string, reason: string) => {
@@ -103,7 +201,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
   const handleMarkAllPresent = () => {
     const next: Record<string, AttendanceRecord> = { ...records };
     enrolledStudents.forEach(s => {
-      next[s.id] = { status: 'P', reason: next[s.id]?.reason || '' };
+      next[s.id] = { status: 'P', minutesLate: 0, reason: next[s.id]?.reason || '' };
     });
     setRecords(next);
   };
@@ -226,6 +324,21 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
             >
               <Save className="w-3.5 h-3.5" />
               <span>Save Register</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setCancelOriginalDate(date);
+                setCancelMakeupDate('');
+                setCancelReason('');
+                setCancelMarkCancelled(true);
+                setIsCancelModalOpen(true);
+              }}
+              className="px-3.5 py-2 text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 border border-rose-200/70 dark:border-rose-900 rounded-xl transition-all shadow-sm flex items-center gap-1.5"
+            >
+              <CalendarX className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+              <span>Reschedule / Cancel Class</span>
             </button>
           </div>
         </div>
@@ -375,7 +488,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                         </div>
                       </td>
 
-                      {/* Status Buttons */}
+                      {/* Status Buttons & Inline Lateness Controls */}
                       <td className="py-3 px-4">
                         <div className="inline-flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200/80 dark:border-slate-700 gap-1">
                           <button
@@ -423,6 +536,65 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                             Unexcused
                           </button>
                         </div>
+
+                        {/* Inline Lateness Configuration Widget */}
+                        {currentStatus === 'L' && (
+                          <div className="mt-2 p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-xl space-y-2 max-w-md">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-bold text-amber-900 dark:text-amber-200">
+                                  Minutes late:
+                                </span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={240}
+                                  value={rec.minutesLate ?? 10}
+                                  onChange={e => handleSetMinutesLate(s.id, Number(e.target.value))}
+                                  className="w-16 px-2 py-1 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 rounded-lg text-xs font-bold text-amber-950 dark:text-amber-100 focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono"
+                                />
+                              </div>
+
+                              <div className="flex items-center gap-1">
+                                {[5, 10, 15, 20, 30].map(chip => (
+                                  <button
+                                    key={chip}
+                                    type="button"
+                                    onClick={() => handleSetMinutesLate(s.id, chip)}
+                                    className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-all ${
+                                      (rec.minutesLate ?? 10) === chip
+                                        ? 'bg-amber-500 text-white shadow-xs'
+                                        : 'bg-white dark:bg-slate-800 text-amber-900 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 hover:bg-amber-100 dark:hover:bg-slate-700'
+                                    }`}
+                                  >
+                                    {chip}m
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-amber-200/60 dark:border-amber-900/40 text-[10px]">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-slate-500 dark:text-slate-400">Joined at:</span>
+                                <input
+                                  type="time"
+                                  value={rec.joinedAt || calcJoinedAtFromMinutes(classStartTime, rec.minutesLate ?? 10)}
+                                  onChange={e => handleSetJoinedAt(s.id, e.target.value)}
+                                  className="px-2 py-0.5 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 rounded text-[11px] font-semibold text-slate-800 dark:text-slate-200 focus:outline-none font-mono"
+                                />
+                              </div>
+
+                              {(() => {
+                                const info = getLatenessInfo(rec.minutesLate ?? 10, classDuration);
+                                return (
+                                  <span className={`px-2 py-0.5 rounded-md font-bold ${info.badgeColor}`}>
+                                    {info.label} ({info.credit} credit)
+                                  </span>
+                                );
+                              })()}
+                            </div>
+                          </div>
+                        )}
                       </td>
 
                       {/* Reason Field */}
@@ -507,6 +679,62 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                   </button>
                 </div>
 
+                {/* Inline Lateness Configuration for Card View */}
+                {currentStatus === 'L' && (
+                  <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-xl space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-bold text-amber-900 dark:text-amber-200">Late:</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={240}
+                          value={rec.minutesLate ?? 10}
+                          onChange={e => handleSetMinutesLate(s.id, Number(e.target.value))}
+                          className="w-14 px-1.5 py-0.5 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 rounded-lg text-xs font-bold text-amber-950 dark:text-amber-100 focus:outline-none font-mono"
+                        />
+                        <span className="text-[10px] text-slate-400">mins</span>
+                      </div>
+
+                      {(() => {
+                        const info = getLatenessInfo(rec.minutesLate ?? 10, classDuration);
+                        return (
+                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${info.badgeColor}`}>
+                            {info.label} ({info.credit}c)
+                          </span>
+                        );
+                      })()}
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      {[5, 10, 15, 20, 30].map(chip => (
+                        <button
+                          key={chip}
+                          type="button"
+                          onClick={() => handleSetMinutesLate(s.id, chip)}
+                          className={`flex-1 py-0.5 text-[10px] font-bold rounded transition-all ${
+                            (rec.minutesLate ?? 10) === chip
+                              ? 'bg-amber-500 text-white shadow-xs'
+                              : 'bg-white dark:bg-slate-800 text-amber-900 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 hover:bg-amber-100 dark:hover:bg-slate-700'
+                          }`}
+                        >
+                          {chip}m
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] pt-1 border-t border-amber-200/60 dark:border-amber-900/40">
+                      <span className="text-slate-500 dark:text-slate-400">Joined at:</span>
+                      <input
+                        type="time"
+                        value={rec.joinedAt || calcJoinedAtFromMinutes(classStartTime, rec.minutesLate ?? 10)}
+                        onChange={e => handleSetJoinedAt(s.id, e.target.value)}
+                        className="px-2 py-0.5 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 rounded text-[11px] font-semibold text-slate-800 dark:text-slate-200 focus:outline-none font-mono"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <input
                   type="text"
                   value={rec.reason || ''}
@@ -519,6 +747,84 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
           })}
         </div>
       )}
+
+      {/* Reschedule / Cancel Class Modal */}
+      <Modal
+        isOpen={isCancelModalOpen}
+        onClose={() => setIsCancelModalOpen(false)}
+        title="Reschedule / Cancel Class"
+      >
+        <form onSubmit={handleSaveCancellation} className="space-y-4 text-xs">
+          <div>
+            <label className="block text-slate-500 dark:text-slate-400 font-medium mb-1">
+              Original Class Date *
+            </label>
+            <input
+              type="date"
+              value={cancelOriginalDate}
+              onChange={e => setCancelOriginalDate(e.target.value)}
+              required
+              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-slate-500 dark:text-slate-400 font-medium mb-1">
+              Makeup Date (optional)
+            </label>
+            <input
+              type="date"
+              value={cancelMakeupDate}
+              onChange={e => setCancelMakeupDate(e.target.value)}
+              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
+            />
+            <span className="text-[11px] text-slate-400 mt-1 block">Can be any day including weekends or event days.</span>
+          </div>
+
+          <div>
+            <label className="block text-slate-500 dark:text-slate-400 font-medium mb-1">
+              Message / Reason *
+            </label>
+            <textarea
+              value={cancelReason}
+              onChange={e => setCancelReason(e.target.value)}
+              placeholder="Short explanation for students..."
+              rows={3}
+              required
+              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl px-3 py-2 text-xs focus:outline-none"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 pt-1">
+            <input
+              type="checkbox"
+              id="markCancelledCheck"
+              checked={cancelMarkCancelled}
+              onChange={e => setCancelMarkCancelled(e.target.checked)}
+              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4"
+            />
+            <label htmlFor="markCancelledCheck" className="font-medium text-slate-700 dark:text-slate-300 select-none cursor-pointer">
+              Mark original day as Cancelled (does not affect student attendance)
+            </label>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => setIsCancelModalOpen(false)}
+              className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-semibold hover:bg-slate-200 cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold shadow-sm cursor-pointer"
+            >
+              Publish Notice
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 };

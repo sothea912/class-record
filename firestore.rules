@@ -146,6 +146,12 @@ service cloud.firestore {
       allow create, update, delete: if isTeacher();
     }
 
+    // Class Cancellation & Rescheduling Notices
+    match /classNotices/{noticeId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isTeacher();
+    }
+
     // Student Progress (Gamification): Readable by all signed-in users, writable by teacher or student owner
     match /studentProgress/{progressId} {
       allow read: if isSignedIn();

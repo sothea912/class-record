@@ -344,7 +344,7 @@ export const ResultBrowserView: React.FC<ResultBrowserViewProps> = ({
 
           let sortedRows = [...rows];
           if (sortBy === 'name') sortedRows.sort((a, b) => a.student.name.localeCompare(b.student.name));
-          else if (sortBy === 'grade') sortedRows.sort((a, b) => b.pct - a.pct);
+          else if (sortBy === 'grade') sortedRows.sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1));
           else if (sortBy === 'no')
             sortedRows.sort((a, b) => (a.student.studentNo || '').localeCompare(b.student.studentNo || ''));
 

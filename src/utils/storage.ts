@@ -9,8 +9,8 @@ export const EMPTY_APP_STATE: AppState = {
     role: 'English Lead Instructor',
     school: 'Central Academy',
     className: 'Main Campus',
-    timeFrom: '19:00',
-    timeTo: '20:30',
+    timeFrom: '20:00',
+    timeTo: '21:00',
     photo: null,
   },
   teacherSecurity: {
@@ -166,13 +166,33 @@ export function loadStoredState(): AppState {
       ? parsed.students.filter((s: StudentItem) => s.id !== 's_sokha' && s.name !== 'Chan Sokha' && s.id !== 's_visal')
       : [];
 
+    const rawAttendance = Array.isArray(parsed.attendance) ? parsed.attendance : [];
+    const migratedAttendance = rawAttendance.map((session: any) => {
+      if (!session || !session.records) return session;
+      const updatedRecords: Record<string, any> = {};
+      Object.entries(session.records).forEach(([stuId, rec]: [string, any]) => {
+        if (!rec) return;
+        let mins = rec.minutesLate;
+        if (rec.status === 'P' && mins === undefined) mins = 0;
+        if (rec.status === 'L' && mins === undefined) mins = 8;
+        updatedRecords[stuId] = {
+          ...rec,
+          minutesLate: mins,
+        };
+      });
+      return {
+        ...session,
+        records: updatedRecords,
+      };
+    });
+
     return {
       profile: parsed.profile || EMPTY_APP_STATE.profile,
       teacherSecurity: parsed.teacherSecurity || { isConfigured: false, password: '' },
       classes: filteredClasses,
       students: filteredStudents,
       subjects: Array.isArray(parsed.subjects) ? parsed.subjects : [],
-      attendance: Array.isArray(parsed.attendance) ? parsed.attendance : [],
+      attendance: migratedAttendance,
       marks: Array.isArray(parsed.marks) ? parsed.marks : [],
       classwork: Array.isArray(parsed.classwork) ? parsed.classwork : [],
       studentPermissions: Array.isArray(parsed.studentPermissions) ? parsed.studentPermissions : [],

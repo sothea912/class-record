@@ -5,6 +5,7 @@ import {
   AttendanceSession,
   AttendanceStatus,
   AuthUser,
+  ClassCancellationItem,
   ClassItem,
   ClassworkTask,
   LibraryResource,
@@ -28,6 +29,7 @@ import {
   subscribeToFirestore,
   provisionAllStudentsAuth,
   syncSaveClass,
+  syncSaveClassNotice,
   syncDeleteClass,
   syncSaveStudent,
   syncDeleteStudent,
@@ -70,6 +72,7 @@ import { ClassworkView } from './views/ClassworkView';
 import { RankingView } from './views/RankingView';
 import { ResultBrowserView } from './views/ResultBrowserView';
 import { ProfileView } from './views/ProfileView';
+import { NoticesView } from './views/NoticesView';
 import { LoginView } from './views/LoginView';
 import { StudentPortalView } from './views/StudentPortalView';
 import { StudentProfileView } from './views/StudentProfileView';
@@ -449,6 +452,38 @@ export default function App() {
     showToast('Class roster updated successfully in cloud');
   };
 
+  const handleSaveCancellation = async (item: ClassCancellationItem) => {
+    try {
+      showToast('Publishing class notice to cloud...', 'info');
+      await syncSaveClassNotice(item);
+      // The active real-time Firestore listener automatically syncs classCancellations state.
+      // Removing the manual local state update here prevents duplicate notices from being created.
+      showToast('Class notice published to cloud successfully!', 'success');
+    } catch (err: any) {
+      console.error('Failed to publish class notice:', err);
+      showToast(`Failed to publish class notice: ${err?.message || String(err)}`, 'error');
+    }
+  };
+
+  const handleDismissCancellation = (cancellationId: string, studentId: string) => {
+    setState(prev => {
+      const nextCancellations = (prev.classCancellations || []).map(c => {
+        if (c.id === cancellationId) {
+          const dismissed = c.dismissedByStudents || [];
+          if (!dismissed.includes(studentId)) {
+            return { ...c, dismissedByStudents: [...dismissed, studentId] };
+          }
+        }
+        return c;
+      });
+      const next: AppState = {
+        ...prev,
+        classCancellations: nextCancellations,
+      };
+      saveStoredState(next);
+      return next;
+    });
+  };
   const handleSaveAttendance = (session: AttendanceSession) => {
     setState(prev => {
       const idx = prev.attendance.findIndex(a => a.id === session.id);
@@ -896,6 +931,7 @@ export default function App() {
           onUpdateStudent={handleUpdateStudentFromPortal}
           onSubmitPermission={handleSubmitStudentPermission}
           onDeletePermission={handleDeleteStudentPermission}
+          onDismissCancellation={handleDismissCancellation}
           isDark={isDark}
           onToggleTheme={() => setIsDark(!isDark)}
           onShowToast={showToast}
@@ -944,6 +980,7 @@ export default function App() {
         studentCount={state.students.length}
         classCount={state.classes.length}
         pendingPermissionCount={(state.studentPermissions || []).filter(p => p.status === 'Pending').length}
+        noticeCount={state.classCancellations?.length || 0}
       />
 
       {/* Main View Area */}
@@ -1032,6 +1069,7 @@ export default function App() {
                 selectedClassId={selectedClassId}
                 onSelectClassId={setSelectedClassId}
                 onSaveAttendance={handleSaveAttendance}
+                onSaveCancellation={handleSaveCancellation}
               />
             )}
 
@@ -1051,6 +1089,13 @@ export default function App() {
                 onApplyPermits={handleApplyPermits}
                 onUpdatePermissionStatus={handleUpdatePermissionStatus}
                 onAddManualPermission={handleManualPermission}
+              />
+            )}
+
+            {currentView === 'notices' && (
+              <NoticesView
+                state={state}
+                onShowToast={showToast}
               />
             )}
 

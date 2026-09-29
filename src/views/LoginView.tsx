@@ -91,9 +91,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
   }, []);
 
   // Teacher Form State
-  const [teacherEmailOrName, setTeacherEmailOrName] = useState(
-    state.profile.name || ALLOWED_TEACHER_EMAILS[0] || 'sotheasoth812@gmail.com'
-  );
+  const [teacherEmailOrName, setTeacherEmailOrName] = useState('');
   const [teacherPassword, setTeacherPassword] = useState('');
   const [showTeacherPassword, setShowTeacherPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -351,7 +349,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
       </header>
 
       {/* Main Form Container: Centered vertically and horizontally */}
-      <main className="flex-1 flex flex-col items-center justify-center w-full max-w-[420px] mx-auto py-4 relative z-10">
+      <main className="flex-1 flex flex-col items-center justify-center w-full max-w-[620px] mx-auto px-4 py-4 relative z-10">
         <AnimatePresence mode="wait">
           {selectedRole === null ? (
             /* Role Selection Screen */
@@ -361,69 +359,65 @@ export const LoginView: React.FC<LoginViewProps> = ({
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-              className="w-full space-y-4"
+              className="w-full space-y-6"
             >
-              {/* Welcome Line Above the Card */}
+              {/* Welcome Line Above the Cards */}
               <div className="text-center space-y-1 mb-2">
                 <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white drop-shadow-xs">
                   {isReturningVisitor ? 'Welcome back' : 'Welcome'}
                 </h1>
                 <p className="text-xs sm:text-sm text-slate-700 dark:text-white/80 font-medium">
-                  Choose how you want to continue
+                  Choose your role
                 </p>
               </div>
 
-              {/* Card Container with soft glass look */}
-              <div className="w-full bg-white/75 dark:bg-[#160a2c]/75 backdrop-blur-xl border border-white/60 dark:border-white/10 rounded-3xl p-5 sm:p-6 shadow-xl shadow-slate-900/5 dark:shadow-2xl space-y-3.5">
-                <h2 className="text-base font-extrabold text-center text-slate-900 dark:text-white">
-                  Sign in as
-                </h2>
+              {/* Two Separate Side-by-Side Cards */}
+              <div className="grid grid-cols-1 min-[340px]:grid-cols-2 gap-3.5 sm:gap-6 w-full max-w-[580px] mx-auto">
+                {/* Teacher Card */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedRole('teacher');
+                    setTeacherEmailOrName('');
+                    setTeacherPassword('');
+                    setErrorMessage('');
+                    setTeacherSetupStep(null);
+                  }}
+                  className="group relative flex flex-col items-center justify-center text-center p-4 sm:p-6 rounded-3xl bg-white/80 dark:bg-[#160a2c]/75 backdrop-blur-xl border border-white/60 dark:border-white/10 hover:border-emerald-400/60 dark:hover:border-emerald-400/50 hover:bg-white dark:hover:bg-[#251347]/90 transition-all duration-200 cursor-pointer shadow-xl shadow-slate-900/5 dark:shadow-2xl hover:shadow-2xl hover:-translate-y-1 active:scale-[0.97] aspect-square w-full min-h-[170px] sm:min-h-[240px]"
+                >
+                  {/* Large Icon Container (56px to 72px) */}
+                  <div className="w-14 h-14 sm:w-18 sm:h-18 rounded-2xl sm:rounded-3xl bg-emerald-500/15 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/20 group-hover:scale-105 transition-transform mb-3 sm:mb-4">
+                    <ShieldCheck className="w-7 h-7 sm:w-9 sm:h-9" />
+                  </div>
 
-                <div className="space-y-3">
-                  <button
-                    type="button"
-                    onClick={() => { setSelectedRole('teacher'); setErrorMessage(''); setTeacherSetupStep(null); }}
-                    className="group w-full flex items-center justify-between p-3.5 sm:p-4 rounded-2xl bg-white/80 dark:bg-[#251347]/70 hover:bg-white dark:hover:bg-[#31195d]/85 border border-slate-200/80 dark:border-white/10 hover:border-emerald-400/50 dark:hover:border-emerald-400/40 transition-all duration-200 cursor-pointer shadow-xs hover:shadow-md hover:-translate-y-0.5 active:scale-[0.98] text-left"
-                  >
-                    <div className="flex items-center gap-3.5 min-w-0">
-                      {/* 44px Rounded Icon Badge */}
-                      <div className="w-11 h-11 rounded-2xl bg-emerald-500/15 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/20 group-hover:scale-105 transition-transform">
-                        <ShieldCheck className="w-6 h-6" />
-                      </div>
-                      <div className="flex flex-col min-w-0">
-                        <span className="text-sm sm:text-base font-bold text-slate-900 dark:text-white leading-tight">
-                          Teacher
-                        </span>
-                        <span className="text-[11px] sm:text-xs text-slate-600 dark:text-purple-200/70 font-medium truncate mt-0.5">
-                          Manage classes, attendance and scores
-                        </span>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-slate-400 dark:text-white/60 group-hover:text-slate-800 dark:group-hover:text-white group-hover:translate-x-1 group-active:translate-x-1 transition-all shrink-0 ml-2" />
-                  </button>
+                  <span className="text-sm sm:text-lg font-bold text-slate-900 dark:text-white leading-tight mb-1 sm:mb-1.5">
+                    Teacher
+                  </span>
 
-                  <button
-                    type="button"
-                    onClick={() => { setSelectedRole('student'); setErrorMessage(''); }}
-                    className="group w-full flex items-center justify-between p-3.5 sm:p-4 rounded-2xl bg-white/80 dark:bg-[#251347]/70 hover:bg-white dark:hover:bg-[#31195d]/85 border border-slate-200/80 dark:border-white/10 hover:border-sky-400/50 dark:hover:border-sky-400/40 transition-all duration-200 cursor-pointer shadow-xs hover:shadow-md hover:-translate-y-0.5 active:scale-[0.98] text-left"
-                  >
-                    <div className="flex items-center gap-3.5 min-w-0">
-                      {/* 44px Rounded Icon Badge */}
-                      <div className="w-11 h-11 rounded-2xl bg-sky-500/15 dark:bg-sky-500/20 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0 border border-sky-500/20 group-hover:scale-105 transition-transform">
-                        <GraduationCap className="w-6 h-6" />
-                      </div>
-                      <div className="flex flex-col min-w-0">
-                        <span className="text-sm sm:text-base font-bold text-slate-900 dark:text-white leading-tight">
-                          Student
-                        </span>
-                        <span className="text-[11px] sm:text-xs text-slate-600 dark:text-purple-200/70 font-medium truncate mt-0.5">
-                          View your attendance and results
-                        </span>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-slate-400 dark:text-white/60 group-hover:text-slate-800 dark:group-hover:text-white group-hover:translate-x-1 group-active:translate-x-1 transition-all shrink-0 ml-2" />
-                  </button>
-                </div>
+                  <p className="text-[10.5px] sm:text-xs text-slate-600 dark:text-purple-200/70 font-medium leading-tight sm:leading-relaxed max-w-[190px]">
+                    Manage classes, attendance and scores
+                  </p>
+                </button>
+
+                {/* Student Card */}
+                <button
+                  type="button"
+                  onClick={() => { setSelectedRole('student'); setErrorMessage(''); }}
+                  className="group relative flex flex-col items-center justify-center text-center p-4 sm:p-6 rounded-3xl bg-white/80 dark:bg-[#160a2c]/75 backdrop-blur-xl border border-white/60 dark:border-white/10 hover:border-sky-400/60 dark:hover:border-sky-400/50 hover:bg-white dark:hover:bg-[#251347]/90 transition-all duration-200 cursor-pointer shadow-xl shadow-slate-900/5 dark:shadow-2xl hover:shadow-2xl hover:-translate-y-1 active:scale-[0.97] aspect-square w-full min-h-[170px] sm:min-h-[240px]"
+                >
+                  {/* Large Icon Container (56px to 72px) */}
+                  <div className="w-14 h-14 sm:w-18 sm:h-18 rounded-2xl sm:rounded-3xl bg-sky-500/15 dark:bg-sky-500/20 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0 border border-sky-500/20 group-hover:scale-105 transition-transform mb-3 sm:mb-4">
+                    <GraduationCap className="w-7 h-7 sm:w-9 sm:h-9" />
+                  </div>
+
+                  <span className="text-sm sm:text-lg font-bold text-slate-900 dark:text-white leading-tight mb-1 sm:mb-1.5">
+                    Student
+                  </span>
+
+                  <p className="text-[10.5px] sm:text-xs text-slate-600 dark:text-purple-200/70 font-medium leading-tight sm:leading-relaxed max-w-[190px]">
+                    View your attendance and results
+                  </p>
+                </button>
               </div>
             </motion.div>
           ) : (
@@ -434,7 +428,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-              className="w-full bg-white/80 dark:bg-[#160a2c]/75 backdrop-blur-xl border border-white/60 dark:border-white/10 rounded-3xl p-5 sm:p-6 shadow-xl dark:shadow-2xl space-y-4 relative text-slate-900 dark:text-white"
+              className="w-full max-w-[420px] mx-auto bg-white/80 dark:bg-[#160a2c]/75 backdrop-blur-xl border border-white/60 dark:border-white/10 rounded-3xl p-5 sm:p-6 shadow-xl dark:shadow-2xl space-y-4 relative text-slate-900 dark:text-white"
             >
               {/* Help icon on top right for student */}
               {selectedRole === 'student' && (
@@ -451,7 +445,13 @@ export const LoginView: React.FC<LoginViewProps> = ({
               <div className="flex items-center justify-between">
                 <button
                   type="button"
-                  onClick={() => { setSelectedRole(null); setErrorMessage(''); setTeacherSetupStep(null); }}
+                  onClick={() => {
+                    setSelectedRole(null);
+                    setTeacherEmailOrName('');
+                    setTeacherPassword('');
+                    setErrorMessage('');
+                    setTeacherSetupStep(null);
+                  }}
                   className="p-1.5 rounded-xl text-slate-800 dark:text-white/90 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer"
                   aria-label="Back"
                 >
@@ -529,7 +529,8 @@ export const LoginView: React.FC<LoginViewProps> = ({
                           type="text"
                           value={teacherEmailOrName}
                           onChange={e => setTeacherEmailOrName(e.target.value)}
-                          placeholder="Name or Email"
+                          placeholder="Username"
+                          autoComplete="off"
                           className="w-full h-10 px-3 bg-white dark:bg-[#0b0318]/70 border border-slate-300 dark:border-white/15 rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-purple-200/50 placeholder:italic focus:outline-none focus:border-blue-500 font-medium"
                         />
                         <div className="relative">
@@ -538,6 +539,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                             value={teacherPassword}
                             onChange={e => setTeacherPassword(e.target.value)}
                             placeholder="Password"
+                            autoComplete="new-password"
                             className="w-full h-10 pl-3 pr-9 bg-white dark:bg-[#0b0318]/70 border border-slate-300 dark:border-white/15 rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-purple-200/50 placeholder:italic focus:outline-none focus:border-blue-500 font-mono"
                           />
                           <button

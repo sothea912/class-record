@@ -1,75 +1,56 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Bell, X, Plus, CheckCircle2, XCircle, Clock, AlertCircle } from 'lucide-react';
-import { StudentPermissionRequest } from '../types';
+import { Bell, X, Plus, CheckCircle2, XCircle, Clock, AlertCircle, CalendarX } from 'lucide-react';
+import { StudentPermissionRequest, ClassCancellationItem, ClassItem } from '../types';
 
 interface LeaveRequestResultsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onRequestNewLeave: () => void;
   requests: StudentPermissionRequest[];
+  cancellations: ClassCancellationItem[];
+  classes: ClassItem[];
+  studentId: string;
+  dismissedNoticeIds: string[];
+  onDismissCancellation?: (cancellationId: string) => void;
   triggerButtonRef?: React.RefObject<HTMLButtonElement | null>;
+  initialTab?: FilterTab;
 }
 
-type FilterTab = 'All' | 'Approved' | 'Denied' | 'Pending';
+type FilterTab = 'All' | 'Leave Requests' | 'Class Updates';
 
 export const LeaveRequestResultsModal: React.FC<LeaveRequestResultsModalProps> = ({
   isOpen,
   onClose,
   onRequestNewLeave,
   requests,
+  cancellations,
+  classes,
+  studentId,
+  dismissedNoticeIds,
+  onDismissCancellation,
   triggerButtonRef,
+  initialTab,
 }) => {
   const [activeFilter, setActiveFilter] = useState<FilterTab>('All');
   const modalRef = useRef<HTMLDivElement>(null);
 
-  // Lock body scroll while modal is open
+  // Sync activeFilter with initialTab when modal opens or initialTab changes
   useEffect(() => {
-    if (isOpen) {
-      const originalOverflow = document.body.style.overflow;
-      document.body.style.overflow = 'hidden';
-      return () => {
-        document.body.style.overflow = originalOverflow;
-      };
+    if (isOpen && initialTab) {
+      setActiveFilter(initialTab);
     }
-  }, [isOpen]);
+  }, [isOpen, initialTab]);
 
-  // Handle Escape key
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
-  // Focus management
-  useEffect(() => {
-    if (isOpen) {
-      setTimeout(() => {
-        modalRef.current?.focus();
-      }, 50);
-    } else if (triggerButtonRef && triggerButtonRef.current) {
-      triggerButtonRef.current.focus();
-    }
-  }, [isOpen, triggerButtonRef]);
-
-  // Filter requests
-  const filteredRequests = requests.filter(r => {
-    if (activeFilter === 'All') return true;
-    if (activeFilter === 'Approved') return r.status === 'Approved';
-    if (activeFilter === 'Denied') return r.status === 'Denied';
-    if (activeFilter === 'Pending') return r.status === 'Pending';
-    return true;
+  // Filter relevant cancellations for this student's enrolled classes
+  const studentCancellations = cancellations.filter(c => {
+    const cls = classes.find(cl => cl.id === c.classId);
+    return cls;
   });
 
-  const countAll = requests.length;
-  const countApproved = requests.filter(r => r.status === 'Approved').length;
-  const countDenied = requests.filter(r => r.status === 'Denied').length;
-  const countPending = requests.filter(r => r.status === 'Pending').length;
+  const countAll = requests.length + studentCancellations.length;
+  const countLeaves = requests.length;
+  const countClasses = studentCancellations.length;
 
   return (
     <AnimatePresence>
@@ -80,9 +61,7 @@ export const LeaveRequestResultsModal: React.FC<LeaveRequestResultsModalProps> =
           onClick={onClose}
           role="dialog"
           aria-modal="true"
-          aria-labelledby="leave-results-title"
         >
-          {/* Motion Backdrop Fade */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -91,7 +70,6 @@ export const LeaveRequestResultsModal: React.FC<LeaveRequestResultsModalProps> =
             className="absolute inset-0"
           />
 
-          {/* Centered Modal Card */}
           <motion.div
             ref={modalRef}
             tabIndex={-1}
@@ -99,7 +77,7 @@ export const LeaveRequestResultsModal: React.FC<LeaveRequestResultsModalProps> =
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 8 }}
             transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-            className="relative z-10 w-[92%] max-w-[560px] max-h-[80vh] bg-white dark:bg-[#141414] border border-slate-200/90 dark:border-[#2a2a2a] rounded-[24px] shadow-2xl flex flex-col overflow-hidden text-slate-900 dark:text-white focus:outline-none"
+            className="relative z-10 w-[92%] max-w-[580px] max-h-[82vh] bg-white dark:bg-[#141414] border border-slate-200/90 dark:border-[#2a2a2a] rounded-[24px] shadow-2xl flex flex-col overflow-hidden text-slate-900 dark:text-white focus:outline-none"
             onClick={e => e.stopPropagation()}
           >
             {/* Header */}
@@ -109,11 +87,11 @@ export const LeaveRequestResultsModal: React.FC<LeaveRequestResultsModalProps> =
                   <Bell className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 id="leave-results-title" className="text-base sm:text-lg font-bold leading-tight">
-                    Leave Request Results
+                  <h3 className="text-base sm:text-lg font-bold leading-tight">
+                    Notification Center
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    Track decisions and status on your permission requests
+                    Class updates, schedule changes &amp; leave request status
                   </p>
                 </div>
               </div>
@@ -129,12 +107,11 @@ export const LeaveRequestResultsModal: React.FC<LeaveRequestResultsModalProps> =
 
             {/* Filter Tabs */}
             <div className="px-3 sm:px-6 py-2.5 bg-slate-50/80 dark:bg-[#181818]/80 border-b border-slate-100 dark:border-slate-800/80 shrink-0">
-              <div className="grid grid-cols-4 gap-1 bg-slate-200/60 dark:bg-slate-900 p-1 rounded-xl">
+              <div className="grid grid-cols-3 gap-1 bg-slate-200/60 dark:bg-slate-900 p-1 rounded-xl">
                 {[
                   { id: 'All', label: 'All', count: countAll },
-                  { id: 'Approved', label: 'Approved', count: countApproved },
-                  { id: 'Pending', label: 'Pending', count: countPending },
-                  { id: 'Denied', label: 'Denied', count: countDenied },
+                  { id: 'Leave Requests', label: 'Leave Requests', count: countLeaves },
+                  { id: 'Class Updates', label: 'Class Updates', count: countClasses },
                 ].map(tab => {
                   const isActive = activeFilter === tab.id;
                   return (
@@ -142,14 +119,14 @@ export const LeaveRequestResultsModal: React.FC<LeaveRequestResultsModalProps> =
                       key={tab.id}
                       type="button"
                       onClick={() => setActiveFilter(tab.id as FilterTab)}
-                      className={`px-1 sm:px-2.5 py-1.5 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer truncate flex items-center justify-center gap-1 ${
+                      className={`px-2 py-1.5 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer truncate flex items-center justify-center gap-1.5 ${
                         isActive
                           ? 'bg-blue-600 text-white shadow-xs'
                           : 'text-slate-700 dark:text-slate-300 hover:bg-slate-300/50 dark:hover:bg-slate-800/60'
                       }`}
                     >
                       <span className="truncate">{tab.label}</span>
-                      <span className={`text-[10px] px-1 py-0.2 rounded-full font-mono shrink-0 ${
+                      <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono shrink-0 ${
                         isActive ? 'bg-white/20 text-white' : 'bg-slate-300/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
                       }`}>
                         {tab.count}
@@ -162,52 +139,116 @@ export const LeaveRequestResultsModal: React.FC<LeaveRequestResultsModalProps> =
 
             {/* List Body */}
             <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-3">
-              {filteredRequests.length > 0 ? (
-                filteredRequests.map(req => {
-                  const isApproved = req.status === 'Approved' || req.status === 'Acknowledged';
-                  const isDenied = req.status === 'Denied';
-                  const isPending = req.status === 'Pending';
+              {(activeFilter === 'All' || activeFilter === 'Class Updates') && studentCancellations.length > 0 && (
+                <div className="space-y-3">
+                  {studentCancellations.map(c => {
+                    const cls = classes.find(cl => cl.id === c.classId);
+                    const isDismissed = dismissedNoticeIds.includes(c.id);
 
-                  return (
-                    <div
-                      key={req.id}
-                      className="p-4 rounded-2xl bg-slate-50 dark:bg-[#1a1a1a] border border-slate-200/70 dark:border-[#2a2a2a] space-y-2 text-xs sm:text-sm"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold font-mono text-slate-900 dark:text-white">{req.date}</span>
-                          <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded-md border border-blue-200/50 dark:border-blue-900/40">
-                            {req.category}
+                    return (
+                      <div
+                        key={c.id}
+                        className="p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/25 border border-amber-200/80 dark:border-amber-900/40 space-y-2.5 text-xs sm:text-sm"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="w-7 h-7 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                              <CalendarX className="w-4 h-4" />
+                            </span>
+                            <div>
+                              <span className="font-bold text-slate-900 dark:text-white block">
+                                {cls?.name || 'Class'} Cancelled
+                              </span>
+                              <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                                Original: {c.originalDate}
+                              </span>
+                            </div>
+                          </div>
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                            Class Update
                           </span>
                         </div>
-                        <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold shrink-0 border flex items-center gap-1 ${
-                          isApproved
-                            ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200/60 dark:border-emerald-800/60'
-                            : isDenied
-                            ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200/60 dark:border-rose-800/60'
-                            : 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200/60 dark:border-amber-800/60'
-                        }`}>
-                          {isApproved && <CheckCircle2 className="w-3 h-3 text-emerald-500" />}
-                          {isDenied && <XCircle className="w-3 h-3 text-rose-500" />}
-                          {isPending && <Clock className="w-3 h-3 text-amber-500" />}
-                          <span>{req.status}</span>
-                        </span>
+
+                        <p className="text-slate-700 dark:text-slate-300 leading-normal font-medium">
+                          Class on <strong className="font-mono">{c.originalDate}</strong> is cancelled.
+                          {c.makeupDate && (
+                            <span> Makeup scheduled for <strong className="font-mono text-blue-600 dark:text-blue-400">{c.makeupDate}</strong>.</span>
+                          )}
+                        </p>
+
+                        {c.reason && (
+                          <p className="text-xs text-slate-600 dark:text-slate-400 italic bg-white/60 dark:bg-[#181818]/60 p-2 rounded-xl border border-amber-100 dark:border-amber-900/30">
+                            &ldquo;{c.reason}&rdquo;
+                          </p>
+                        )}
+
+                        {!isDismissed && onDismissCancellation && (
+                          <div className="pt-1 flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => onDismissCancellation(c.id)}
+                              className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
+                            >
+                              Mark as Read
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      <p className="text-slate-600 dark:text-slate-300 leading-relaxed font-normal">
-                        {req.reason}
-                      </p>
-                      <p className="text-[10px] text-slate-400 pt-1 border-t border-slate-200/40 dark:border-slate-800/40">
-                        Submitted on {new Date(req.createdAt).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </p>
-                    </div>
-                  );
-                })
-              ) : (
+                    );
+                  })}
+                </div>
+              )}
+
+              {(activeFilter === 'All' || activeFilter === 'Leave Requests') && requests.length > 0 && (
+                <div className="space-y-3">
+                  {requests.map(req => {
+                    const isApproved = req.status === 'Approved' || req.status === 'Acknowledged';
+                    const isDenied = req.status === 'Denied';
+                    const isPending = req.status === 'Pending';
+
+                    return (
+                      <div
+                        key={req.id}
+                        className="p-4 rounded-2xl bg-slate-50 dark:bg-[#1a1a1a] border border-slate-200/70 dark:border-[#2a2a2a] space-y-2 text-xs sm:text-sm"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold font-mono text-slate-900 dark:text-white">{req.date}</span>
+                            <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded-md border border-blue-200/50 dark:border-blue-900/40">
+                              {req.category}
+                            </span>
+                          </div>
+                          <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold shrink-0 border flex items-center gap-1 ${
+                            isApproved
+                              ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200/60 dark:border-emerald-800/60'
+                              : isDenied
+                              ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200/60 dark:border-rose-800/60'
+                              : 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200/60 dark:border-amber-800/60'
+                          }`}>
+                            {isApproved && <CheckCircle2 className="w-3 h-3 text-emerald-500" />}
+                            {isDenied && <XCircle className="w-3 h-3 text-rose-500" />}
+                            {isPending && <Clock className="w-3 h-3 text-amber-500" />}
+                            <span>{req.status}</span>
+                          </span>
+                        </div>
+                        <p className="text-slate-600 dark:text-slate-300 leading-relaxed font-normal">
+                          {req.reason}
+                        </p>
+                        <p className="text-[10px] text-slate-400 pt-1 border-t border-slate-200/40 dark:border-slate-800/40">
+                          Leave Request &middot; Submitted on {new Date(req.createdAt).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {requests.length === 0 && studentCancellations.length === 0 && (
                 <div className="py-12 text-center text-slate-400 space-y-2">
                   <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
                     <AlertCircle className="w-6 h-6" />
                   </div>
-                  <p className="text-xs font-semibold">No permission requests found in this view.</p>
+                  <p className="text-xs font-semibold">No notifications found in this view.</p>
                 </div>
               )}
             </div>

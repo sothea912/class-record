@@ -38,6 +38,8 @@ import {
   Video,
   Compass,
   X,
+  CalendarX,
+  Check,
 } from 'lucide-react';
 import {
   AppState,
@@ -48,6 +50,7 @@ import {
   StudentPermissionRequest,
   StudentProgress,
   DailyQuest,
+  ClassCancellationItem,
 } from '../types';
 import {
   AVATAR_OPTIONS,
@@ -60,6 +63,9 @@ import {
   ATT_EXCUSED_PENALTY,
   ATT_UNEXCUSED_PENALTY,
   computeResults,
+  getAttendanceCredit,
+  getPunctualityWarning,
+  isSessionAfterEnrollment,
   monthName,
   round1,
   thisMonth,
@@ -83,6 +89,7 @@ interface StudentPortalViewProps {
   onUpdateStudent: (updatedStudent: StudentItem) => void;
   onSubmitPermission: (req: StudentPermissionRequest) => void;
   onDeletePermission?: (permitId: string) => void;
+  onDismissCancellation?: (cancellationId: string, studentId: string) => void;
   isDark: boolean;
   onToggleTheme: () => void;
   onShowToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
@@ -98,6 +105,7 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
   onUpdateStudent,
   onSubmitPermission,
   onDeletePermission,
+  onDismissCancellation,
   isDark,
   onToggleTheme,
   onShowToast,
@@ -432,6 +440,331 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
   const [isHistoryPermsExpanded, setIsHistoryPermsExpanded] = useState(false);
   const [isNotificationDropdownOpen, setIsNotificationDropdownOpen] = useState(false);
 
+  // Filter permission requests for this student
+  const myPermRequests = useMemo(() => {
+    return (state.studentPermissions || []).filter(p => p.studentId === student?.id);
+  }, [state.studentPermissions, student?.id]);
+
+  // Track seen permission IDs in localStorage to manage unread status badges
+  const [seenPermIds, setSeenPermIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(`seen_perms_${studentId}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Identify unread permission updates (Granted or Denied by teacher, not yet viewed)
+  const unreadPerms = useMemo(() => {
+    return myPermRequests.filter(
+      p => (p.status === 'Approved' || p.status === 'Denied') && !seenPermIds.includes(p.id)
+    );
+  }, [myPermRequests, seenPermIds]);
+
+  const hasUnread = unreadPerms.length > 0;
+
+  const [dismissedNoticeIds, setDismissedNoticeIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(`dismissed_notices_${studentId}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const handleDismissNoticeLocal = (noticeId: string) => {
+    const next = [...dismissedNoticeIds, noticeId];
+    setDismissedNoticeIds(next);
+    try {
+      localStorage.setItem(`dismissed_notices_${studentId}`, JSON.stringify(next));
+    } catch (err) {
+      console.warn('Failed to save dismissed notice:', err);
+    }
+  };
+
+  const studentCancellations = useMemo(() => {
+    const list = state.classCancellations || [];
+    // Deduplicate notices by ID to ensure React list rendering has guaranteed unique keys.
+    // This solves any duplicate key collisions on the student portal side.
+    const uniqueMap = new Map<string, ClassCancellationItem>();
+    list.forEach(c => {
+      if (c && c.id) {
+        uniqueMap.set(c.id, c);
+      }
+    });
+    const uniqueList = Array.from(uniqueMap.values());
+
+    return uniqueList.filter(c => {
+      const cls = state.classes.find(cl => cl.id === c.classId);
+      return cls && student?.classIds?.includes(cls.id);
+    });
+  }, [state.classCancellations, state.classes, student]);
+
+  const activeBannerCancellation = useMemo(() => {
+    return studentCancellations.find(c => !dismissedNoticeIds.includes(c.id));
+  }, [studentCancellations, dismissedNoticeIds]);
+
+  const undismissedCancellationCount = studentCancellations.filter(
+    c => !dismissedNoticeIds.includes(c.id)
+  ).length;
+
+  const hasTotalUnread = hasUnread || undismissedCancellationCount > 0;
+
+  // New Spotlight Notice States
+  const [notificationCenterTab, setNotificationCenterTab] = useState<'All' | 'Leave Requests' | 'Class Updates'>('All');
+  const [shownNoticeIds, setShownNoticeIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(`shown_notices_${studentId}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [spotlightNotices, setSpotlightNotices] = useState<ClassCancellationItem[]>([]);
+  const [spotlightIndex, setSpotlightIndex] = useState<number>(0);
+  const [spotlightOpen, setSpotlightOpen] = useState<boolean>(false);
+  const [isSpotlightExiting, setIsSpotlightExiting] = useState<boolean>(false);
+  const [dragY, setDragY] = useState<number>(0);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const dragStartY = React.useRef<number>(0);
+  const cardRef = React.useRef<HTMLDivElement>(null);
+
+  // Hook 1: Monitor studentCancellations live to trigger Spotlight Notice
+  React.useEffect(() => {
+    if (!studentCancellations || studentCancellations.length === 0) {
+      return;
+    }
+
+    // Read the fresh shown notices from localStorage directly to prevent any stale closures
+    let freshShownIds: string[] = [];
+    try {
+      const saved = localStorage.getItem(`shown_notices_${studentId}`);
+      freshShownIds = saved ? JSON.parse(saved) : [];
+    } catch {
+      freshShownIds = [];
+    }
+
+    // Unshown notices are those that are NOT in freshShownIds
+    const unseen = studentCancellations.filter(c => !freshShownIds.includes(c.id));
+
+    if (unseen.length > 0) {
+      // Sort unseen so that newest are first
+      const sortedUnseen = [...unseen].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+      // Mark all these notices as shown immediately so they don't pop up again
+      const newShownIds = Array.from(new Set([...freshShownIds, ...unseen.map(u => u.id)]));
+      setShownNoticeIds(newShownIds);
+      try {
+        localStorage.setItem(`shown_notices_${studentId}`, JSON.stringify(newShownIds));
+      } catch (err) {
+        console.warn('Failed to save shown notices', err);
+      }
+
+      // Initialize the spotlight queue with all unseen notices
+      setSpotlightNotices(sortedUnseen);
+      setSpotlightIndex(0);
+      setSpotlightOpen(true);
+      setIsSpotlightExiting(false);
+
+      // Trigger navigator.vibrate if available
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try {
+          navigator.vibrate(200);
+        } catch (e) {
+          console.warn('Vibration failed', e);
+        }
+      }
+    }
+  }, [studentCancellations, studentId]);
+
+  const currentSpotlightNotice = spotlightNotices[spotlightIndex];
+
+  // Hook 2: Dismiss handler for Spotlight Notice with try-catch failsafes
+  const handleDismissSpotlight = (immediate = false) => {
+    try {
+      if (immediate) {
+        if (spotlightIndex < spotlightNotices.length - 1) {
+          setSpotlightIndex(prev => prev + 1);
+        } else {
+          setSpotlightOpen(false);
+          setSpotlightNotices([]);
+        }
+        return;
+      }
+
+      setIsSpotlightExiting(true);
+      setTimeout(() => {
+        try {
+          setIsSpotlightExiting(false);
+          setDragY(0);
+          if (spotlightIndex < spotlightNotices.length - 1) {
+            setSpotlightIndex(prev => prev + 1);
+          } else {
+            setSpotlightOpen(false);
+            setSpotlightNotices([]);
+          }
+        } catch (err) {
+          console.error("Failsafe inside timeout:", err);
+          setSpotlightOpen(false);
+          setSpotlightNotices([]);
+        }
+      }, 250);
+    } catch (err) {
+      console.error("Failsafe in handleDismissSpotlight:", err);
+      setSpotlightOpen(false);
+      setSpotlightNotices([]);
+    }
+  };
+
+  const handleViewInNotifications = () => {
+    setNotificationCenterTab('Class Updates');
+    setIsNotificationDropdownOpen(true);
+    handleDismissSpotlight();
+  };
+
+  // Hook 3: Live deletion listener: if notice is deleted by teacher, close spotlight immediately
+  React.useEffect(() => {
+    if (spotlightOpen && currentSpotlightNotice) {
+      const exists = studentCancellations.some(c => c.id === currentSpotlightNotice.id);
+      if (!exists) {
+        // Teacher deleted current notice! Close spotlight or move to next
+        handleDismissSpotlight(true);
+      }
+    }
+  }, [studentCancellations, currentSpotlightNotice, spotlightOpen]);
+
+  // Hook 4: Notification Center automatic Read status sync on opening
+  React.useEffect(() => {
+    if (isNotificationDropdownOpen || isLeaveResultsOpen) {
+      // opened notification center: mark all student cancellations as read
+      const allNoticeIds = studentCancellations.map(c => c.id);
+      if (allNoticeIds.length > 0) {
+        const nextDismissed = Array.from(new Set([...dismissedNoticeIds, ...allNoticeIds]));
+        setDismissedNoticeIds(nextDismissed);
+        try {
+          localStorage.setItem(`dismissed_notices_${studentId}`, JSON.stringify(nextDismissed));
+        } catch (err) {
+          console.warn('Failed to save dismissed notices:', err);
+        }
+      }
+    }
+  }, [isNotificationDropdownOpen, isLeaveResultsOpen, studentCancellations, studentId]);
+
+  // Hook 5: Block scroll on page behind when spotlight is open
+  React.useEffect(() => {
+    if (spotlightOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [spotlightOpen]);
+
+  // Hook 6: Trap focus in card on open/change, and support Escape key dismissal
+  React.useEffect(() => {
+    if (spotlightOpen && cardRef.current) {
+      cardRef.current.focus();
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!spotlightOpen) return;
+
+      if (e.key === 'Escape') {
+        // Fallback: Escape key immediately dismisses
+        setSpotlightOpen(false);
+        setSpotlightNotices([]);
+        return;
+      }
+
+      if (e.key === 'Tab' && cardRef.current) {
+        const focusableElements = cardRef.current.querySelectorAll(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        );
+        const firstElement = focusableElements[0] as HTMLElement;
+        const lastElement = focusableElements[focusableElements.length - 1] as HTMLElement;
+
+        if (focusableElements.length === 0) {
+          e.preventDefault();
+          return;
+        }
+
+        if (e.shiftKey) {
+          if (document.activeElement === firstElement || document.activeElement === cardRef.current) {
+            lastElement.focus();
+            e.preventDefault();
+          }
+        } else {
+          if (document.activeElement === lastElement) {
+            firstElement.focus();
+            e.preventDefault();
+          }
+        }
+      }
+    };
+
+    if (spotlightOpen) {
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [spotlightOpen, spotlightIndex, spotlightNotices.length]);
+
+  // Pointer/Touch Drag handlers for Swipe Up dismissal of spotlight card
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    // If we've clicked or tapped on a button, do not capture pointer or start dragging
+    if ((e.target as HTMLElement).closest('button, a, input, select, textarea')) {
+      return;
+    }
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setIsDragging(true);
+    dragStartY.current = e.clientY;
+    setDragY(0);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDragging) return;
+    const deltaY = e.clientY - dragStartY.current;
+    if (deltaY < 0) {
+      setDragY(deltaY); // Swiping up moves up
+    } else {
+      setDragY(deltaY * 0.15); // Swiping down has resistance
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDragging) return;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    setIsDragging(false);
+
+    if (dragY < -40) {
+      // Swipe up dismisses past ~40px
+      handleDismissSpotlight();
+    } else {
+      // Spring back
+      setDragY(0);
+    }
+  };
+
+  const formatNoticeDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    try {
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        if (!isNaN(d.getTime())) {
+          return d.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+        }
+      }
+    } catch (e) {
+      console.warn(e);
+    }
+    return dateStr;
+  };
+
   // Attendance filter in Attendance Tab
   const [attStatusFilter, setAttStatusFilter] = useState<string>('all');
 
@@ -449,10 +782,13 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
       className: string;
       date: string;
       status: AttendanceStatus;
+      minutesLate?: number;
+      joinedAt?: string;
       reason?: string;
     }[] = [];
 
     state.attendance.forEach(session => {
+      if (!isSessionAfterEnrollment(session.date, student)) return;
       // Check if this session is for a class the student is enrolled in
       const rec = session.records[student.id];
       if (rec && rec.status) {
@@ -463,6 +799,8 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
           className: clsObj?.name || 'Class',
           date: session.date,
           status: rec.status,
+          minutesLate: rec.minutesLate,
+          joinedAt: rec.joinedAt,
           reason: rec.reason,
         });
       }
@@ -490,17 +828,24 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
     let late = 0;
     let excused = 0;
     let unexcused = 0;
+    let totalCredit = 0;
+    const duration = currentClassObj?.duration || 60;
 
     relevant.forEach(item => {
       if (item.status === 'P') present++;
       else if (item.status === 'L') late++;
       else if (item.status === 'E') excused++;
       else if (item.status === 'U') unexcused++;
+      totalCredit += getAttendanceCredit(
+        { status: item.status, minutesLate: item.minutesLate, joinedAt: item.joinedAt },
+        duration
+      );
     });
 
     const total = present + late + excused + unexcused;
-    const rate = total > 0 ? round1(((present + late * 0.75) / total) * 100) : 100;
-    const score = Math.max(0, 100 - excused * ATT_EXCUSED_PENALTY - unexcused * ATT_UNEXCUSED_PENALTY);
+    const rate = total > 0 ? round1((totalCredit / total) * 100) : null;
+    const ratePct = rate !== null ? `${rate}%` : '—';
+    const score = rate !== null ? round1(rate) : 0;
 
     return {
       total,
@@ -508,34 +853,12 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
       late,
       excused,
       unexcused,
+      totalCredit: round1(totalCredit),
       rate,
+      ratePct,
       score,
     };
-  }, [personalAttendance, activeClassId]);
-
-  // Filter permission requests for this student
-  const myPermRequests = useMemo(() => {
-    return (state.studentPermissions || []).filter(p => p.studentId === student?.id);
-  }, [state.studentPermissions, student?.id]);
-
-  // Track seen permission IDs in localStorage to manage unread status badges
-  const [seenPermIds, setSeenPermIds] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem(`seen_perms_${studentId}`);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  // Identify unread permission updates (Granted or Denied by teacher, not yet viewed)
-  const unreadPerms = useMemo(() => {
-    return myPermRequests.filter(
-      p => (p.status === 'Approved' || p.status === 'Denied') && !seenPermIds.includes(p.id)
-    );
-  }, [myPermRequests, seenPermIds]);
-
-  const hasUnread = unreadPerms.length > 0;
+  }, [personalAttendance, activeClassId, currentClassObj?.duration]);
 
   const markUnreadAsRead = () => {
     const allHandledIds = myPermRequests
@@ -905,12 +1228,12 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                   setIsNotificationDropdownOpen(prev => !prev);
                 }}
                 className={`w-10 h-10 rounded-full border border-slate-200/80 dark:border-slate-800/80 bg-slate-100/80 dark:bg-[#181818]/80 text-slate-700 dark:text-slate-200 flex items-center justify-center hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer transition-colors shadow-sm relative ${
-                  hasUnread ? 'text-rose-500 dark:text-rose-400' : ''
+                  hasTotalUnread ? 'text-rose-500 dark:text-rose-400' : ''
                 } ${isBellBouncing ? 'animate-bell-bounce' : ''}`}
-                title={hasUnread ? 'New permission request updates!' : 'Permission Notifications'}
+                title={hasTotalUnread ? 'New class updates or notifications!' : 'Notification Center'}
               >
                 <Bell className="w-4 h-4" />
-                {hasUnread && (
+                {hasTotalUnread && (
                   <span className="absolute top-0.5 right-0.5 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white dark:border-[#0C0C0C] animate-pulse" />
                 )}
               </button>
@@ -1224,9 +1547,24 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                 )}
                 <div className="text-left space-y-2">
                   <div>
-                    <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight leading-snug">
-                      Welcome, {student.name}
-                    </h2>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight leading-snug">
+                        Welcome, {student.name}
+                      </h2>
+                      {(() => {
+                        const warning = getPunctualityWarning(student.id, thisMonth(), state, activeClassId);
+                        if (!warning) return null;
+                        return (
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold border shadow-xs ${warning.badgeClass}`}
+                            title={warning.description}
+                          >
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                            <span>{warning.label} ({warning.count} Lates)</span>
+                          </span>
+                        );
+                      })()}
+                    </div>
                     <p className="text-xs sm:text-sm text-blue-100/90 dark:text-purple-200/90 font-semibold mt-1">
                       {student.studentNo ? `${student.studentNo} · ` : ''}{currentClassObj?.name || 'Classroom'}
                     </p>
@@ -1291,6 +1629,8 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                 joins={state.classJoins || []}
                 permissions={myPermRequests || []}
                 attendanceRecords={personalAttendance}
+                classDuration={currentClassObj?.duration || 60}
+                classStartTime={currentClassObj?.startTime || currentClassObj?.timeFrom || '20:00'}
                 yellowFrom={state.teacherSecurity?.yellowFrom ?? 1}
                 redFrom={state.teacherSecurity?.redFrom ?? 10}
                 yellowPenalty={state.teacherSecurity?.yellowPenalty ?? 0}
@@ -1867,6 +2207,12 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
           setIsLeaveFormOpen(true);
         }}
         requests={myPermRequests}
+        cancellations={studentCancellations}
+        classes={state.classes}
+        studentId={studentId}
+        dismissedNoticeIds={dismissedNoticeIds}
+        onDismissCancellation={handleDismissNoticeLocal}
+        initialTab={notificationCenterTab}
       />
 
       {/* Floating Academic Scores & Standings Overlay */}
@@ -1985,7 +2331,242 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
             opacity: 0;
           }
         }
+
+        @property --border-angle {
+          syntax: "<angle>";
+          inherits: false;
+          initial-value: 0deg;
+        }
+
+        @keyframes rotate-border {
+          to {
+            --border-angle: 360deg;
+          }
+        }
+
+        @keyframes overlay-fade-in {
+          from {
+            opacity: 0;
+            backdrop-filter: blur(0px);
+            -webkit-backdrop-filter: blur(0px);
+          }
+          to {
+            opacity: 1;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+          }
+        }
+
+        @keyframes overlay-fade-out {
+          from {
+            opacity: 1;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+          }
+          to {
+            opacity: 0;
+            backdrop-filter: blur(0px);
+            -webkit-backdrop-filter: blur(0px);
+          }
+        }
+
+        .overlay-entrance {
+          animation: overlay-fade-in 0.25s ease-out forwards;
+        }
+
+        .overlay-exit {
+          animation: overlay-fade-out 0.25s ease-in forwards;
+        }
+
+        @keyframes slide-down-overshoot {
+          0% {
+            transform: translate3d(-50%, -150%, 0);
+          }
+          70% {
+            transform: translate3d(-50%, 10px, 0);
+          }
+          100% {
+            transform: translate3d(-50%, 0, 0);
+          }
+        }
+
+        @keyframes slide-up-exit {
+          to {
+            transform: translate3d(-50%, -150%, 0);
+            opacity: 0;
+          }
+        }
+
+        .spotlight-entrance {
+          animation: slide-down-overshoot 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+
+        .spotlight-exit {
+          animation: slide-up-exit 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.1) forwards;
+        }
+
+        .spotlight-glowing-card {
+          --border-angle: 0deg;
+          position: relative;
+          background: #020617; /* Slate-950 */
+        }
+
+        .spotlight-glowing-border::before {
+          content: "";
+          position: absolute;
+          inset: -1.5px; /* sharp thin border */
+          border-radius: calc(1rem + 1.5px);
+          z-index: -1;
+          background: conic-gradient(
+            from var(--border-angle),
+            transparent 20%,
+            var(--glow-color-1, #f59e0b) 40%,
+            var(--glow-color-2, #fbbf24) 60%,
+            transparent 80%
+          );
+          animation: rotate-border 3s linear infinite;
+        }
+
+        @keyframes soft-pulse {
+          0%, 100% {
+            box-shadow: 0 0 6px 1px var(--glow-shadow-color, rgba(245, 158, 11, 0.25));
+          }
+          50% {
+            box-shadow: 0 0 12px 2px var(--glow-shadow-color, rgba(245, 158, 11, 0.35));
+          }
+        }
+
+        .spotlight-pulse-glow {
+          animation: soft-pulse 2s ease-in-out infinite;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .spotlight-entrance {
+            animation: none !important;
+            transform: translate3d(-50%, 0, 0) !important;
+          }
+          .spotlight-exit {
+            animation: none !important;
+            opacity: 0 !important;
+          }
+          .spotlight-glowing-border::before {
+            animation: none !important;
+            background: var(--glow-color-1, #f59e0b) !important;
+          }
+          .spotlight-pulse-glow {
+            animation: none !important;
+            box-shadow: 0 0 6px 1px var(--glow-shadow-color, rgba(245, 158, 11, 0.35)) !important;
+          }
+        }
       `}</style>
+
+      {/* Spotlight Notice Overlay & Modal Card */}
+      {spotlightOpen && currentSpotlightNotice && (
+        <div
+          role="alertdialog"
+          aria-modal="true"
+          className={`fixed inset-0 z-[250] flex items-start justify-center p-4 overflow-y-auto ${
+            isSpotlightExiting ? 'overlay-exit' : 'overlay-entrance'
+          }`}
+          style={{
+            backgroundColor: 'rgba(0, 0, 0, 0.65)',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
+          }}
+        >
+          <div
+            ref={cardRef}
+            tabIndex={0}
+            className={`fixed left-1/2 w-[92%] max-w-[340px] select-none pointer-events-auto touch-none focus:outline-none transition-all duration-300 ${
+              isSpotlightExiting ? 'spotlight-exit' : 'spotlight-entrance'
+            }`}
+            style={{
+              top: `calc(1.5rem + env(safe-area-inset-top, 0px))`,
+              transform: `translate3d(-50%, ${dragY}px, 0)`,
+              transition: isDragging ? 'none' : 'transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+            }}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+          >
+            <div
+              className="spotlight-glowing-card spotlight-glowing-border spotlight-pulse-glow p-3.5 bg-slate-950/95 border border-white/10 rounded-2xl relative overflow-hidden flex flex-col gap-2.5 text-white shadow-2xl"
+              style={{
+                '--glow-color-1': currentSpotlightNotice.makeupDate ? '#3b82f6' : '#f59e0b',
+                '--glow-color-2': currentSpotlightNotice.makeupDate ? '#8b5cf6' : '#fbbf24',
+                '--glow-shadow-color': currentSpotlightNotice.makeupDate ? 'rgba(59, 130, 246, 0.3)' : 'rgba(245, 158, 11, 0.3)',
+              } as React.CSSProperties}
+            >
+              <div className="flex items-start justify-between gap-2.5">
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-8.5 h-8.5 rounded-lg flex items-center justify-center shrink-0 shadow-lg ${
+                    currentSpotlightNotice.makeupDate
+                      ? 'bg-blue-500/10 text-blue-400'
+                      : 'bg-amber-500/10 text-amber-400'
+                  }`}>
+                    <CalendarX className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-[17px] sm:text-[18px] font-black tracking-tight text-white leading-tight">
+                      {currentSpotlightNotice.makeupDate ? 'Class rescheduled' : 'Class cancelled'}
+                    </h3>
+                    <p className="text-[10px] font-mono text-slate-400 mt-0.5">
+                      Class ID: {currentSpotlightNotice.classId}
+                    </p>
+                  </div>
+                </div>
+
+                {spotlightNotices.length > 1 && (
+                  <span className="text-[10px] font-black text-slate-300 bg-white/10 px-2 py-0.5 rounded-lg shrink-0">
+                    {spotlightIndex + 1} of {spotlightNotices.length}
+                  </span>
+                )}
+              </div>
+
+              {/* Compact Inline Dates Layout - text exactly 14px (text-sm is 14px) */}
+              <div className="space-y-1 text-sm font-medium border-t border-white/5 pt-2 text-slate-300">
+                <p>
+                  Original Class: <strong className="font-mono text-slate-100">{formatNoticeDate(currentSpotlightNotice.originalDate)}</strong>
+                </p>
+                {currentSpotlightNotice.makeupDate && (
+                  <p className="text-emerald-400">
+                    Makeup Class: <strong className="font-mono text-emerald-300 bg-emerald-500/10 px-1.5 py-0.5 rounded-md border border-emerald-500/15">{formatNoticeDate(currentSpotlightNotice.makeupDate)}</strong>
+                  </p>
+                )}
+              </div>
+
+              {/* Tight Reason Message Block */}
+              {currentSpotlightNotice.reason && (
+                <div className="text-[11px] sm:text-xs text-slate-300 bg-white/5 p-2 rounded-xl border border-white/5 italic font-medium leading-relaxed line-clamp-2">
+                  &ldquo;{currentSpotlightNotice.reason}&rdquo;
+                </div>
+              )}
+
+              {/* Tighter Action Buttons (max height 40px - 44px) */}
+              <div className="flex flex-col gap-1.5 pt-2 border-t border-white/5">
+                <button
+                  type="button"
+                  onClick={() => handleDismissSpotlight()}
+                  className="w-full h-10 bg-amber-600 hover:bg-amber-700 text-white font-extrabold rounded-xl text-xs sm:text-sm shadow-md transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Got it</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleViewInNotifications}
+                  className="w-full h-8 bg-slate-900/60 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800/80 font-bold rounded-xl text-[10px] sm:text-xs transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Bell className="w-3 h-3" />
+                  <span>View in notifications</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -27,6 +27,14 @@ import {
 } from 'lucide-react';
 import { AppState, StudentItem, ClassItem, AttendanceStatus } from '../types';
 import {
+  getPunctualityWarning,
+  getAttendanceCredit,
+  isSessionAfterEnrollment,
+  gradeOf,
+  round1,
+  thisMonth,
+} from '../utils/helpers';
+import {
   provisionStudentAuthAccount,
   unsyncStudentAuthAccount,
   unsyncStudentWithNotification,
@@ -153,13 +161,8 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
       }
     });
 
-    const overallPct = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
-    let grade = 'F';
-    if (overallPct >= 90) grade = 'A';
-    else if (overallPct >= 80) grade = 'B';
-    else if (overallPct >= 70) grade = 'C';
-    else if (overallPct >= 60) grade = 'D';
-    else if (overallPct >= 50) grade = 'E';
+    const overallPct = maxScore > 0 ? round1((totalScore / maxScore) * 100) : null;
+    const grade = overallPct !== null ? gradeOf(overallPct) : '—';
 
     return {
       totalScore,
@@ -177,17 +180,25 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
     let lateCount = 0;
     let excusedCount = 0;
     let unexcusedCount = 0;
+    let totalCredit = 0;
     const historyList: Array<{
       date: string;
       status: AttendanceStatus;
       reason?: string;
       className: string;
+      minutesLate?: number;
+      credit: number;
     }> = [];
 
     state.attendance.forEach(session => {
+      if (!isSessionAfterEnrollment(session.date, student)) return;
       const rec = session.records?.[student.id];
-      if (rec) {
+      if (rec && rec.status) {
         const cls = state.classes.find(c => c.id === session.classId);
+        const duration = cls?.duration || 60;
+        const credit = getAttendanceCredit(rec, duration);
+        totalCredit += credit;
+
         if (rec.status === 'P') presentCount++;
         else if (rec.status === 'L') lateCount++;
         else if (rec.status === 'E') excusedCount++;
@@ -197,14 +208,16 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
           date: session.date,
           status: rec.status,
           reason: rec.reason,
+          minutesLate: rec.minutesLate,
           className: cls?.name || 'Class',
+          credit,
         });
       }
     });
 
     historyList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     const totalSessions = presentCount + lateCount + excusedCount + unexcusedCount;
-    const rate = totalSessions > 0 ? Math.round(((presentCount + lateCount * 0.8 + excusedCount * 0.5) / totalSessions) * 100) : 100;
+    const rate = totalSessions > 0 ? round1((totalCredit / totalSessions) * 100) : null;
 
     return {
       presentCount,
@@ -212,10 +225,11 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
       excusedCount,
       unexcusedCount,
       totalSessions,
+      totalCredit: round1(totalCredit),
       rate,
       historyList,
     };
-  }, [state.attendance, state.classes, student.id]);
+  }, [state.attendance, state.classes, student]);
 
   // Enrolled Classes
   const enrolledClasses = useMemo(() => {
@@ -396,6 +410,21 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
                 }`}>
                   {student.sex || 'Student'}
                 </span>
+
+                {/* Punctuality Warning Badge */}
+                {(() => {
+                  const warning = getPunctualityWarning(student.id, thisMonth(), state);
+                  if (!warning) return null;
+                  return (
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold border shadow-xs animate-in fade-in duration-200 ${warning.badgeClass}`}
+                      title={warning.description}
+                    >
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                      <span>{warning.label} ({warning.count} Lates)</span>
+                    </span>
+                  );
+                })()}
               </div>
 
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
@@ -512,10 +541,12 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
                 <CheckSquare className="w-3.5 h-3.5 text-emerald-500" /> Attendance Rate
               </span>
               <p className="text-2xl font-bold text-slate-900 dark:text-white mt-1">
-                {attendanceHistory.rate}%
+                {attendanceHistory.rate !== null ? `${attendanceHistory.rate}%` : '—'}
               </p>
               <span className="text-[11px] text-emerald-600 font-medium">
-                {attendanceHistory.presentCount} present of {attendanceHistory.totalSessions} sessions
+                {attendanceHistory.totalSessions > 0
+                  ? `${attendanceHistory.presentCount} present of ${attendanceHistory.totalSessions} sessions`
+                  : 'No sessions held yet'}
               </span>
             </div>
 
@@ -524,10 +555,12 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
                 <Trophy className="w-3.5 h-3.5 text-amber-500" /> Academic Average
               </span>
               <p className="text-2xl font-bold text-slate-900 dark:text-white mt-1">
-                {academicSummary.overallPct}%
+                {academicSummary.overallPct !== null ? `${academicSummary.overallPct}%` : '—'}
               </p>
               <span className="text-[11px] text-amber-600 font-medium">
-                Grade: {academicSummary.grade} ({academicSummary.totalScore}/{academicSummary.maxScore} pts)
+                {academicSummary.maxScore > 0
+                  ? `Grade: ${academicSummary.grade} (${academicSummary.totalScore}/${academicSummary.maxScore} pts)`
+                  : 'No graded records yet'}
               </span>
             </div>
 

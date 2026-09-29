@@ -53,8 +53,11 @@ export const RankingView: React.FC<RankingViewProps> = ({
       ? monthName(months[0])
       : `${monthName(months[0])} – ${monthName(months[months.length - 1])}`;
 
-  const classAvg = rows.length ? round1(rows.reduce((a, r) => a + r.pct, 0) / rows.length) : 0;
-  const passingCount = rows.filter(r => r.pct >= 50).length;
+  const activeGradedRows = rows.filter(r => r.hasData && r.pct !== null);
+  const classAvg = activeGradedRows.length
+    ? round1(activeGradedRows.reduce((a, r) => a + (r.pct || 0), 0) / activeGradedRows.length)
+    : 0;
+  const passingCount = activeGradedRows.filter(r => (r.pct || 0) >= 50).length;
 
   // Filter rows
   let filteredRows = rows;
@@ -86,23 +89,23 @@ export const RankingView: React.FC<RankingViewProps> = ({
     const rowsHtml = rows
       .map(
         r => `<tr>
-          <td class="num">${r.rank}</td>
+          <td class="num">${r.rank !== null ? r.rank : '—'}</td>
           <td><b>${r.student.name}</b>${r.student.studentNo ? ` (${r.student.studentNo})` : ''}</td>
-          ${subs.map(s => `<td class="num">${r.per[s.id]?.got || 0} / ${r.per[s.id]?.max || s.max}</td>`).join('')}
-          ${workMax ? `<td class="num">${r.work} / ${workMax}</td>` : ''}
-          <td class="num">${r.att.score} / ${r.att.max}</td>
-          <td class="num"><b>${r.total} / ${r.max}</b></td>
-          <td class="num">${r.avg}</td>
-          <td class="num"><b>${r.pct}%</b></td>
+          ${subs.map(s => `<td class="num">${r.per[s.id]?.got ?? '—'} / ${r.per[s.id]?.max || s.max}</td>`).join('')}
+          ${workMax ? `<td class="num">${r.hasData ? r.work : '—'} / ${workMax}</td>` : ''}
+          <td class="num">${r.att.sessionsHeld > 0 ? `${r.att.score} / ${r.att.max}` : '—'}</td>
+          <td class="num"><b>${r.hasData ? `${r.total} / ${r.max}` : '—'}</b></td>
+          <td class="num">${r.hasData ? r.avg : '—'}</td>
+          <td class="num"><b>${r.pct !== null ? `${r.pct}%` : '—'}</b></td>
           <td class="num">${r.grade}</td>
-          <td class="num ${r.status === 'Pass' ? 'badge-pass' : 'badge-fail'}">${r.status}</td>
+          <td class="num ${r.status === 'Pass' ? 'badge-pass' : r.status === 'Fail' ? 'badge-fail' : ''}">${r.status}</td>
         </tr>`
       )
       .join('');
 
     const body = `
       <table class="stats"><tr>
-        <td><b>${classAvg}%</b> class average</td><td><b>${passingCount}/${rows.length}</b> scoring 50%+</td><td><b>${rows.length}</b> students</td>
+        <td><b>${classAvg}%</b> class average</td><td><b>${passingCount}/${activeGradedRows.length || rows.length}</b> scoring 50%+</td><td><b>${rows.length}</b> students</td>
       </tr></table>
       <table>
         <thead>
@@ -110,7 +113,7 @@ export const RankingView: React.FC<RankingViewProps> = ({
         </thead>
         <tbody>${rowsHtml}</tbody>
       </table>
-      <p class="muted">Grading Scale: A ≥90 · B ≥80 · C ≥70 · D ≥60 · E ≥50 · F &lt;50. Attendance starts at 100 per month (−5 excused, −1 unexcused).</p>`;
+      <p class="muted">Grading Scale: A ≥90 · B ≥80 · C ≥70 · D ≥60 · E ≥50 · F &lt;50. Attendance rate = earned credit / sessions held (On-time: 1.0 · Late: 0.75 · Very Late: 0.5 · Excused: 0.5 · Unexcused: 0).</p>`;
 
     const subtitle = `${label} · ${state.profile.school || ''} · Teacher: ${state.profile.name || ''}`;
     downloadWordDoc(
@@ -323,7 +326,7 @@ export const RankingView: React.FC<RankingViewProps> = ({
               <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
             </div>
             <span className="text-[11px] text-slate-400 hidden sm:inline">
-              Attendance: 100 base &middot; −5 excused &middot; −1 unexcused
+              Attendance: Earned Credit / Sessions (0–5m: 1.0 · 6–10m: 0.75 · 11m–⅓: 0.5 · &gt;⅓: 0 · Excused: 0.5 · Absent: 0)
             </span>
           </div>
 
@@ -349,9 +352,10 @@ export const RankingView: React.FC<RankingViewProps> = ({
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
                 {filteredRows.map(r => {
-                  const isTop1 = r.rank === 1;
-                  const isTop2 = r.rank === 2;
-                  const isTop3 = r.rank === 3;
+                  const isRanked = r.hasData && r.rank !== null;
+                  const isTop1 = isRanked && r.rank === 1;
+                  const isTop2 = isRanked && r.rank === 2;
+                  const isTop3 = isRanked && r.rank === 3;
 
                   return (
                     <tr
@@ -362,7 +366,9 @@ export const RankingView: React.FC<RankingViewProps> = ({
                     >
                       {/* Rank Indicator */}
                       <td className="py-3 px-3 text-center">
-                        {isTop1 ? (
+                        {!isRanked ? (
+                          <span className="font-mono text-slate-400 font-semibold">—</span>
+                        ) : isTop1 ? (
                           <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-tr from-amber-400 to-yellow-300 text-amber-950 font-extrabold text-xs shadow-sm ring-2 ring-amber-300">
                             1
                           </span>
@@ -405,8 +411,8 @@ export const RankingView: React.FC<RankingViewProps> = ({
                         const item = r.per[s.id];
                         return (
                           <td key={s.id} className="py-3 px-3 text-right tabular-nums">
-                            <span className="font-semibold text-slate-800 dark:text-slate-200">{item ? item.got : '—'}</span>
-                            <span className="block text-[10px] text-slate-400">{item ? `${item.pct}%` : ''}</span>
+                            <span className="font-semibold text-slate-800 dark:text-slate-200">{item && r.hasData ? item.got : '—'}</span>
+                            <span className="block text-[10px] text-slate-400">{item && r.hasData ? `${item.pct}%` : ''}</span>
                           </td>
                         );
                       })}
@@ -414,72 +420,84 @@ export const RankingView: React.FC<RankingViewProps> = ({
                       {/* Classwork */}
                       {workMax > 0 && (
                         <td className="py-3 px-3 text-right tabular-nums">
-                          <span className="font-semibold text-slate-800 dark:text-slate-200">{r.work}</span>
-                          <span className="block text-[10px] text-slate-400">/ {workMax}</span>
+                          <span className="font-semibold text-slate-800 dark:text-slate-200">{r.hasData ? r.work : '—'}</span>
+                          <span className="block text-[10px] text-slate-400">{r.hasData ? `/ ${workMax}` : ''}</span>
                         </td>
                       )}
 
                       {/* Attendance */}
                       <td className="py-3 px-3 text-right tabular-nums">
-                        <span className="font-semibold text-slate-800 dark:text-slate-200">{r.att.score}</span>
-                        <span className="block text-[10px] text-slate-400">/ {r.att.max}</span>
+                        <span className="font-semibold text-slate-800 dark:text-slate-200">{r.att.sessionsHeld > 0 ? r.att.score : '—'}</span>
+                        <span className="block text-[10px] text-slate-400">{r.att.sessionsHeld > 0 ? `/ ${r.att.max}` : ''}</span>
                       </td>
 
                       {/* Total Score */}
                       <td className="py-3 px-4 text-right tabular-nums">
-                        <span className="font-bold text-slate-900 dark:text-white text-sm">{r.total}</span>
-                        <span className="block text-[10px] text-slate-400">/ {r.max}</span>
+                        <span className="font-bold text-slate-900 dark:text-white text-sm">{r.hasData ? r.total : '—'}</span>
+                        <span className="block text-[10px] text-slate-400">{r.hasData ? `/ ${r.max}` : ''}</span>
                       </td>
 
                       {/* Average */}
                       <td className="py-3 px-3 text-right tabular-nums font-mono text-slate-600 dark:text-slate-300">
-                        {r.avg}
+                        {r.hasData ? r.avg : '—'}
                       </td>
 
                       {/* Percent */}
                       <td className="py-3 px-3 text-right tabular-nums font-bold text-sm">
-                        <span className={r.pct >= 50 ? 'text-blue-600 dark:text-blue-400' : 'text-rose-600'}>
-                          {r.pct}%
-                        </span>
+                        {r.pct !== null ? (
+                          <span className={r.pct >= 50 ? 'text-blue-600 dark:text-blue-400' : 'text-rose-600'}>
+                            {r.pct}%
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 font-mono font-normal text-xs">—</span>
+                        )}
                       </td>
 
                       {/* Grade */}
                       <td className="py-3 px-3 text-center">
-                        <span
-                          className={`inline-block px-2.5 py-0.5 rounded-md font-bold text-xs ${
-                            r.grade === 'A'
-                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                              : r.grade === 'B'
-                              ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
-                              : r.grade === 'C'
-                              ? 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300'
-                              : r.grade === 'D'
-                              ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                              : r.grade === 'E'
-                              ? 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300'
-                              : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
-                          }`}
-                        >
-                          {r.grade}
-                        </span>
+                        {r.grade !== '—' ? (
+                          <span
+                            className={`inline-block px-2.5 py-0.5 rounded-md font-bold text-xs ${
+                              r.grade === 'A'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                : r.grade === 'B'
+                                ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                                : r.grade === 'C'
+                                ? 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300'
+                                : r.grade === 'D'
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                : r.grade === 'E'
+                                ? 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300'
+                                : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                            }`}
+                          >
+                            {r.grade}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 font-mono text-xs">—</span>
+                        )}
                       </td>
 
                       {/* Status Pass / Fail */}
                       <td className="py-3 px-4 text-center">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                            r.status === 'Pass'
-                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200'
-                              : 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200'
-                          }`}
-                        >
-                          {r.status === 'Pass' ? (
-                            <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                          ) : (
-                            <AlertTriangle className="w-3 h-3 text-rose-500" />
-                          )}
-                          <span>{r.status}</span>
-                        </span>
+                        {r.status !== '—' ? (
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                              r.status === 'Pass'
+                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200'
+                                : 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200'
+                            }`}
+                          >
+                            {r.status === 'Pass' ? (
+                              <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                            ) : (
+                              <AlertTriangle className="w-3 h-3 text-rose-500" />
+                            )}
+                            <span>{r.status}</span>
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 font-mono text-xs">—</span>
+                        )}
                       </td>
                     </tr>
                   );

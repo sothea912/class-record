@@ -14,7 +14,7 @@ import {
   FileUp,
 } from 'lucide-react';
 import { AppState, ClassItem, StudentItem } from '../types';
-import { studentsOf, subjectsOf, uid } from '../utils/helpers';
+import { calcJoinedAtFromMinutes, studentsOf, subjectsOf, uid } from '../utils/helpers';
 import { Modal } from '../components/Modal';
 
 interface ClassesViewProps {
@@ -38,8 +38,9 @@ export const ClassesView: React.FC<ClassesViewProps> = ({
   // Form states
   const [name, setName] = useState('');
   const [level, setLevel] = useState('');
-  const [timeFrom, setTimeFrom] = useState('19:00');
-  const [timeTo, setTimeTo] = useState('20:30');
+  const [timeFrom, setTimeFrom] = useState('20:00');
+  const [duration, setDuration] = useState<number>(60);
+  const [timeTo, setTimeTo] = useState('21:00');
   const [days, setDays] = useState('Mon–Fri');
   const [room, setRoom] = useState('Room 101');
   const [meetLink, setMeetLink] = useState('');
@@ -48,14 +49,31 @@ export const ClassesView: React.FC<ClassesViewProps> = ({
   const [rosterClass, setRosterClass] = useState<ClassItem | null>(null);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
 
+  const handleStartTimeChange = (newStartTime: string) => {
+    setTimeFrom(newStartTime);
+    if (newStartTime && duration > 0) {
+      setTimeTo(calcJoinedAtFromMinutes(newStartTime, duration));
+    }
+  };
+
+  const handleDurationChange = (newDuration: number) => {
+    setDuration(newDuration);
+    if (timeFrom && newDuration > 0) {
+      setTimeTo(calcJoinedAtFromMinutes(timeFrom, newDuration));
+    }
+  };
+
   const openAddClass = () => {
     setEditingClass(null);
     setName('');
     setLevel('');
-    setTimeFrom(state.profile.timeFrom || '19:00');
-    setTimeTo(state.profile.timeTo || '20:30');
+    const defaultStart = state.profile.timeFrom || '20:00';
+    const defaultDur = 60;
+    setTimeFrom(defaultStart);
+    setDuration(defaultDur);
+    setTimeTo(calcJoinedAtFromMinutes(defaultStart, defaultDur) || '21:00');
     setDays('Mon–Fri');
-    setRoom('Room 101');
+    setRoom('Online / Room 101');
     setMeetLink('');
     setIsClassModalOpen(true);
   };
@@ -64,8 +82,11 @@ export const ClassesView: React.FC<ClassesViewProps> = ({
     setEditingClass(c);
     setName(c.name);
     setLevel(c.level || '');
-    setTimeFrom(c.timeFrom || '19:00');
-    setTimeTo(c.timeTo || '20:30');
+    const start = c.startTime || c.timeFrom || (c.name.includes('Evening') ? '20:00' : '20:00');
+    const dur = c.duration || 60;
+    setTimeFrom(start);
+    setDuration(dur);
+    setTimeTo(c.timeTo || calcJoinedAtFromMinutes(start, dur) || '21:00');
     setDays(c.days || 'Mon–Fri');
     setRoom(c.room || '');
     setMeetLink(c.meetLink || '');
@@ -82,6 +103,8 @@ export const ClassesView: React.FC<ClassesViewProps> = ({
       name: name.trim(),
       level: level.trim(),
       timeFrom,
+      startTime: timeFrom,
+      duration: Number(duration) || 60,
       timeTo,
       days: days.trim(),
       room: room.trim(),
@@ -181,11 +204,14 @@ export const ClassesView: React.FC<ClassesViewProps> = ({
 
                   {/* Meta items */}
                   <div className="space-y-2 text-xs text-slate-500 dark:text-slate-400 mt-3">
-                    {(c.timeFrom || c.timeTo) && (
+                    {(c.timeFrom || c.timeTo || c.startTime) && (
                       <div className="flex items-center gap-2">
                         <Clock className="w-4 h-4 text-slate-400 shrink-0" />
                         <span className="font-medium text-slate-700 dark:text-slate-200 font-mono">
-                          {c.timeFrom} – {c.timeTo}
+                          {c.startTime || c.timeFrom || '20:00'} – {c.timeTo || calcJoinedAtFromMinutes(c.startTime || c.timeFrom || '20:00', c.duration || 60)}
+                        </span>
+                        <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded">
+                          {c.duration || 60}m
                         </span>
                       </div>
                     )}
@@ -320,25 +346,58 @@ export const ClassesView: React.FC<ClassesViewProps> = ({
 
           <div>
             <label className="block text-slate-500 dark:text-slate-400 font-medium mb-1">
-              Class Starts
+              Class Start Time *
             </label>
             <input
               type="time"
               value={timeFrom}
-              onChange={e => setTimeFrom(e.target.value)}
+              onChange={e => handleStartTimeChange(e.target.value)}
+              className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-slate-500 dark:text-slate-400 font-medium">
+                Duration (minutes) *
+              </label>
+              <div className="flex items-center gap-1">
+                {[45, 60, 90, 120].map(mins => (
+                  <button
+                    key={mins}
+                    type="button"
+                    onClick={() => handleDurationChange(mins)}
+                    className={`px-1.5 py-0.5 text-[10px] font-semibold rounded ${
+                      duration === mins
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                    }`}
+                  >
+                    {mins}m
+                  </button>
+                ))}
+              </div>
+            </div>
+            <input
+              type="number"
+              min={15}
+              max={360}
+              value={duration}
+              onChange={e => handleDurationChange(Number(e.target.value))}
+              placeholder="e.g. 60"
               className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
             />
           </div>
 
           <div>
             <label className="block text-slate-500 dark:text-slate-400 font-medium mb-1">
-              Class Ends
+              Class Ends (Calculated)
             </label>
             <input
               type="time"
               value={timeTo}
               onChange={e => setTimeTo(e.target.value)}
-              className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none font-mono"
             />
           </div>
 

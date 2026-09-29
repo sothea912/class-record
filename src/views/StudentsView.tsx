@@ -23,7 +23,7 @@ import {
   UserX,
 } from 'lucide-react';
 import { AppState, StudentItem } from '../types';
-import { sortStudents, uid } from '../utils/helpers';
+import { getPunctualityWarning, sortStudents, thisMonth, uid } from '../utils/helpers';
 import { Modal } from '../components/Modal';
 import {
   resetStudentPasswordByTeacher,
@@ -502,6 +502,20 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
                   {/* Badges & Meta */}
                   <div className="mt-3.5 space-y-1.5 text-xs text-slate-500 dark:text-slate-400">
+                    {/* Punctuality Warning Badge */}
+                    {(() => {
+                      const warning = getPunctualityWarning(s.id, thisMonth(), state);
+                      if (!warning) return null;
+                      return (
+                        <div className="flex items-center gap-1 mb-1">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${warning.badgeClass}`}>
+                            <AlertTriangle className="w-3 h-3 shrink-0" />
+                            <span>{warning.label} ({warning.count} Lates)</span>
+                          </span>
+                        </div>
+                      );
+                    })()}
+
                     <div className="flex items-center gap-2">
                       <span className="text-slate-400 font-medium">Classes:</span>
                       <div className="flex flex-wrap gap-1">
@@ -649,9 +663,21 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                             </div>
                           )}
                           <div>
-                            <span className="font-semibold text-slate-900 dark:text-white block group-hover/cell:text-blue-600 dark:group-hover/cell:text-blue-400 transition-colors">
-                              {s.name}
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-semibold text-slate-900 dark:text-white block group-hover/cell:text-blue-600 dark:group-hover/cell:text-blue-400 transition-colors">
+                                {s.name}
+                              </span>
+                              {(() => {
+                                const warning = getPunctualityWarning(s.id, thisMonth(), state);
+                                if (!warning) return null;
+                                return (
+                                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.2 text-[9px] font-bold rounded-full border ${warning.badgeClass}`}>
+                                    <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
+                                    <span>{warning.count}L</span>
+                                  </span>
+                                );
+                              })()}
+                            </div>
                             <span className="text-[11px] font-mono text-slate-400">{s.studentNo || '—'}</span>
                           </div>
                         </div>

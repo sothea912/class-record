@@ -1483,6 +1483,18 @@ export async function syncSaveAttendance(session: AttendanceSession): Promise<vo
 }
 
 /**
+ * Delete an Attendance session
+ */
+export async function syncDeleteAttendance(sessionId: string): Promise<void> {
+  const path = `${COLLECTIONS.ATTENDANCE}/${sessionId}`;
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.ATTENDANCE, sessionId));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+
+/**
  * Save Marks
  */
 export async function syncSaveMarkDoc(markDoc: MarkDoc): Promise<void> {

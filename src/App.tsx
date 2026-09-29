@@ -35,6 +35,7 @@ import {
   syncSaveSubject,
   syncDeleteSubject,
   syncSaveAttendance,
+  syncDeleteAttendance,
   syncSaveMarkDoc,
   syncSaveClassworkTask,
   syncDeleteClassworkTask,
@@ -458,6 +459,16 @@ export default function App() {
     });
     syncSaveAttendance(session);
     showToast(`Attendance register saved for ${session.date}`);
+  };
+
+  const handleDeleteAttendanceSessions = async (sessionIds: string[]) => {
+    if (!sessionIds.length) return;
+    setState(prev => ({
+      ...prev,
+      attendance: prev.attendance.filter(a => !sessionIds.includes(a.id)),
+    }));
+    await Promise.all(sessionIds.map(id => syncDeleteAttendance(id)));
+    showToast(`Deleted ${sessionIds.length} daily register session(s)`, 'info');
   };
 
   const handleApplyPermits = (
@@ -1030,6 +1041,7 @@ export default function App() {
                 selectedClassId={selectedClassId}
                 onSelectClassId={setSelectedClassId}
                 onSaveAttendance={handleSaveAttendance}
+                onDeleteAttendanceSessions={handleDeleteAttendanceSessions}
               />
             )}
 

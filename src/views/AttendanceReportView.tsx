@@ -23,6 +23,7 @@ interface AttendanceReportViewProps {
   selectedClassId: string;
   onSelectClassId: (id: string) => void;
   onSaveAttendance: (session: AttendanceSession) => void;
+  onDeleteAttendanceSessions?: (sessionIds: string[]) => void;
 }
 
 export const AttendanceReportView: React.FC<AttendanceReportViewProps> = ({
@@ -30,6 +31,7 @@ export const AttendanceReportView: React.FC<AttendanceReportViewProps> = ({
   selectedClassId,
   onSelectClassId,
   onSaveAttendance,
+  onDeleteAttendanceSessions,
 }) => {
   const currentClass = state.classes.find(c => c.id === selectedClassId) || state.classes[0];
   const [selectedMonth, setSelectedMonth] = useState<string>(thisMonth());
@@ -44,6 +46,8 @@ export const AttendanceReportView: React.FC<AttendanceReportViewProps> = ({
   } | null>(null);
 
   const [confirmDelete, setConfirmDelete] = useState<boolean>(false);
+  const [showDeleteAllModal, setShowDeleteAllModal] = useState<boolean>(false);
+  const [isDeletingAll, setIsDeletingAll] = useState<boolean>(false);
 
   const handleCellClick = (
     studentId: string,
@@ -111,6 +115,22 @@ export const AttendanceReportView: React.FC<AttendanceReportViewProps> = ({
     }
     setEditingCell(null);
     setConfirmDelete(false);
+  };
+
+  const handleConfirmDeleteAll = () => {
+    if (days.length === 0) return;
+    setIsDeletingAll(true);
+    try {
+      const sessionIdsToDelete = days.map(d => d.id);
+      if (onDeleteAttendanceSessions) {
+        onDeleteAttendanceSessions(sessionIdsToDelete);
+      }
+      setShowDeleteAllModal(false);
+    } catch (err) {
+      console.error('Failed to delete attendance sessions:', err);
+    } finally {
+      setIsDeletingAll(false);
+    }
   };
 
   const handleExportExcel = async () => {
@@ -508,10 +528,23 @@ export const AttendanceReportView: React.FC<AttendanceReportViewProps> = ({
 
           {/* Daily Register Matrix */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-              <h3 className="font-bold text-slate-900 dark:text-white text-sm">
-                Daily Register Grid ({days.length} Sessions)
-              </h3>
+            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <h3 className="font-bold text-slate-900 dark:text-white text-sm">
+                  Daily Register Grid ({days.length} Sessions)
+                </h3>
+                {days.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteAllModal(true)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 hover:bg-rose-100 dark:bg-rose-500/10 dark:hover:bg-rose-500/20 border border-rose-200/80 dark:border-rose-500/30 rounded-lg transition-all cursor-pointer shadow-xs active:scale-95"
+                    title="Delete all sessions in this Daily Register"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete all</span>
+                  </button>
+                )}
+              </div>
               <span className="text-xs text-slate-400">P = Present, L = Late, E = Excused, U = Unexcused</span>
             </div>
 
@@ -709,6 +742,57 @@ export const AttendanceReportView: React.FC<AttendanceReportViewProps> = ({
               </div>
             </div>
           )}
+        </Modal>
+      )}
+
+      {/* Delete All Daily Register Sessions Confirmation Modal */}
+      {showDeleteAllModal && (
+        <Modal
+          isOpen={showDeleteAllModal}
+          onClose={() => {
+            if (!isDeletingAll) setShowDeleteAllModal(false);
+          }}
+          title="Delete All Daily Register Sessions"
+          maxWidth="max-w-md"
+        >
+          <div className="space-y-4">
+            <div className="p-3.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-200/60 dark:border-rose-900/50 rounded-2xl flex items-start gap-3">
+              <div className="w-8 h-8 rounded-xl bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0 mt-0.5">
+                <Trash2 className="w-4.5 h-4.5" />
+              </div>
+              <div className="space-y-1.5">
+                <h4 className="font-bold text-rose-950 dark:text-rose-200 text-xs sm:text-sm">
+                  Confirm Bulk Deletion
+                </h4>
+                <p className="text-xs text-rose-800 dark:text-rose-300 leading-relaxed">
+                  Are you sure you want to permanently delete all <strong>{days.length} daily register session(s)</strong> for <strong>{currentClass.name}</strong> ({monthName(selectedMonth)})?
+                </p>
+                <p className="text-[11px] text-rose-700/90 dark:text-rose-400 font-medium">
+                  All Present, Late, Excused, and Unexcused records across all {list.length} student(s) for these dates will be permanently removed from cloud storage and this device. This action cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                disabled={isDeletingAll}
+                onClick={() => setShowDeleteAllModal(false)}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-xl transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingAll}
+                onClick={handleConfirmDeleteAll}
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:scale-95 disabled:opacity-50 disabled:pointer-events-none rounded-xl shadow-md shadow-rose-600/20 transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{isDeletingAll ? 'Deleting...' : `Delete All (${days.length})`}</span>
+              </button>
+            </div>
+          </div>
         </Modal>
       )}
     </div>

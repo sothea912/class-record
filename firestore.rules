@@ -1,0 +1,157 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper: Check if user is authenticated with Firebase Auth
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    // Helper: Check if user is a teacher
+    function isTeacher() {
+      return isSignedIn() && (
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid))
+         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher')
+        || (request.auth.token.email != null && !request.auth.token.email.endsWith('@centralacademy.app'))
+        || request.auth.token.email == 'teacher@centralacademy.app'
+      );
+    }
+
+    // Helper: Check if user is the specified student
+    function isStudent(studentId) {
+      return isSignedIn() && (
+        request.auth.uid == studentId
+        || (exists(/databases/$(database)/documents/users/$(request.auth.uid))
+            && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.studentId == studentId)
+      );
+    }
+
+    // Public directory lookup for student authentication resolution (NO passwords, phones, or private data)
+    match /student_lookup/{lookupId} {
+      allow read, write: if true;
+    }
+
+    // Public Branding (App Logo & Wallpaper)
+    match /public_branding/{docId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Student Account Requests (Create-only for students requesting account restoration; Teacher-only read, update, delete)
+    match /account_requests/{requestId} {
+      allow create: if request.resource.data.keys().hasAll(['id', 'studentId', 'studentName', 'createdAt', 'status'])
+        && request.resource.data.status == 'pending'
+        && request.resource.data.studentId is string && request.resource.data.studentId.size() > 0 && request.resource.data.studentId.size() <= 128
+        && request.resource.data.studentName is string && request.resource.data.studentName.size() > 0 && request.resource.data.studentName.size() <= 100
+        && request.resource.data.createdAt is string && request.resource.data.createdAt.size() <= 60;
+      allow read, update, delete: if isTeacher();
+    }
+
+    // Users Collection (Stores role, name, email, studentId, classIds, dashboardLayout)
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isTeacher());
+      allow create: if isSignedIn() && (request.auth.uid == userId || isTeacher());
+      allow update: if isSignedIn() && (
+        isTeacher()
+        || (request.auth.uid == userId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'studentId']))
+      );
+      allow delete: if isTeacher();
+    }
+
+    // Class Joins / Self Check-ins
+    match /class_joins/{joinId} {
+      allow create: if isSignedIn()
+        && request.resource.data.studentId == request.auth.uid
+        && request.resource.data.joinedAt == request.time;
+      allow read: if isTeacher() || (isSignedIn() && resource.data.studentId == request.auth.uid);
+      allow update, delete: if isTeacher();
+    }
+
+    // Classes: Readable by all signed-in users, writable by teacher
+    match /classes/{classId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isTeacher();
+    }
+
+    // Students: Teachers can manage all; students can read only their own document (never write)
+    match /students/{studentId} {
+      allow read: if isTeacher() || isStudent(studentId);
+      allow create, update, delete: if isTeacher();
+    }
+
+    // Subjects: Readable by all signed-in users, writable by teacher
+    match /subjects/{subjectId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isTeacher();
+    }
+
+    // Attendance Sessions: Readable by signed-in users, writable by teacher
+    match /attendance/{sessionId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isTeacher();
+    }
+
+    // Marks / Exam Scores: Readable by signed-in users, writable by teacher
+    match /marks/{markId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isTeacher();
+    }
+
+    // Classwork / Homework: Readable by signed-in users, writable by teacher
+    match /classwork/{taskId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isTeacher();
+    }
+
+    // Leave Permissions: Teachers can read/manage all; Students can create & read their own
+    match /permissions/{permitId} {
+      allow read: if isTeacher()
+        || (isSignedIn() && resource.data.studentId != null && isStudent(resource.data.studentId));
+      allow create: if isTeacher()
+        || (isSignedIn() && request.resource.data.studentId != null && isStudent(request.resource.data.studentId));
+      allow update, delete: if isTeacher()
+        || (isSignedIn() && resource.data.studentId != null && isStudent(resource.data.studentId));
+    }
+
+    // Announcement Banners: Readable by signed-in users, writable by teacher
+    match /banners/{bannerId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isTeacher();
+    }
+
+    // Resource Library: Readable by signed-in users, create/delete by teacher, update by signed-in users
+    match /resources/{resourceId} {
+      allow read: if isSignedIn();
+      allow create, delete: if isTeacher();
+      allow update: if isSignedIn();
+    }
+
+    // App Settings: Readable by signed-in users, writable by teacher
+    match /app_settings/{docId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isTeacher();
+    }
+
+    // Custom Imported Records: Readable by signed-in users, writable by teacher
+    match /custom_records/{recordId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isTeacher();
+    }
+
+    // Student Progress (Gamification): Readable by all signed-in users, writable by teacher or student owner
+    match /studentProgress/{progressId} {
+      allow read: if isSignedIn();
+      allow create: if isTeacher() || (isSignedIn() && request.resource.data.studentId != null && isStudent(request.resource.data.studentId));
+      allow update: if isTeacher() || (isSignedIn() && resource.data.studentId != null && isStudent(resource.data.studentId));
+      allow delete: if isTeacher();
+    }
+  }
+}

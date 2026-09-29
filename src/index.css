@@ -1,0 +1,312 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-primary-dark: #0C0C0C;
+  --color-brand-green: #4BA95F;
+  --color-brand-green-hover: #3e8f50;
+  --color-brand-green-light: #eef8f1;
+  --color-brand-cyan: #77DDFA;
+  --color-brand-cyan-hover: #58cdec;
+  --color-brand-cyan-light: #f0fbfe;
+  --color-brand-amber: #FEA339;
+  --color-brand-amber-hover: #e89128;
+  --color-brand-amber-light: #fef6ec;
+  --color-brand-purple: #9985FB;
+  --color-brand-purple-hover: #836cf9;
+  --color-brand-purple-light: #f5f3ff;
+  --color-brand-coral: #FF908D;
+  --color-brand-coral-hover: #f57a77;
+  --color-brand-coral-light: #fff2f2;
+}
+
+:root {
+  --app-bg: #F4F7F5;
+  --app-card: #FFFFFF;
+  --app-border: #D1DED5;
+  --app-text: #0F172A;
+  --app-text-muted: #475569;
+  --app-accent-green: #4BA95F;
+  --app-accent-cyan: #77DDFA;
+  --app-accent-amber: #FEA339;
+  --app-accent-purple: #9985FB;
+  --app-accent-coral: #FF908D;
+}
+
+.dark {
+  --app-bg: #0C0C0C;
+  --app-card: #151816;
+  --app-border: #2A362E;
+  --app-text: #FFFFFF;
+  --app-text-muted: #94A3B8;
+  --app-accent-green: #4BA95F;
+  --app-accent-cyan: #77DDFA;
+  --app-accent-amber: #FEA339;
+  --app-accent-purple: #9985FB;
+  --app-accent-coral: #FF908D;
+}
+
+@layer base {
+  body {
+    background-color: var(--app-bg);
+    color: var(--app-text);
+    font-family: 'Plus Jakarta Sans', 'Be Vietnam Pro', 'Noto Sans Khmer', system-ui, -apple-system, sans-serif;
+    transition: background-color 0.25s ease, color 0.25s ease;
+  }
+  
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Stat cards: Mostly white background in light mode with a vibrant colored top edge indicator */
+.color-card-green {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-top: 4px solid #4BA95F;
+  box-shadow: 0 4px 12px -2px rgba(75, 169, 95, 0.12), 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+}
+
+.color-card-cyan {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-top: 4px solid #0092c4;
+  box-shadow: 0 4px 12px -2px rgba(0, 146, 196, 0.12), 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+}
+
+.color-card-amber {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-top: 4px solid #FEA339;
+  box-shadow: 0 4px 12px -2px rgba(254, 163, 57, 0.12), 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+}
+
+.color-card-purple {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-top: 4px solid #9985FB;
+  box-shadow: 0 4px 12px -2px rgba(153, 133, 251, 0.12), 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+}
+
+.color-card-coral {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-top: 4px solid #FF908D;
+  box-shadow: 0 4px 12px -2px rgba(255, 144, 141, 0.12), 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+}
+
+/* Glassmorphic wallpaper compatibility for stat cards in light mode */
+html.has-wallpaper:not(.dark) .color-card-green,
+html.has-wallpaper:not(.dark) .color-card-cyan,
+html.has-wallpaper:not(.dark) .color-card-amber,
+html.has-wallpaper:not(.dark) .color-card-purple,
+html.has-wallpaper:not(.dark) .color-card-coral {
+  background-color: rgba(255, 255, 255, 0.94) !important;
+  backdrop-filter: blur(12px) !important;
+}
+
+/* Dark mode stat cards: subtle dark gradient tinting */
+.dark .color-card-green {
+  background: linear-gradient(135deg, rgba(75, 169, 95, 0.18), rgba(119, 221, 250, 0.12));
+  border: 1.5px solid rgba(75, 169, 95, 0.4);
+}
+.dark .color-card-cyan {
+  background: linear-gradient(135deg, rgba(119, 221, 250, 0.18), rgba(153, 133, 251, 0.12));
+  border: 1.5px solid rgba(119, 221, 250, 0.45);
+}
+.dark .color-card-amber {
+  background: linear-gradient(135deg, rgba(254, 163, 57, 0.18), rgba(255, 144, 141, 0.12));
+  border: 1.5px solid rgba(254, 163, 57, 0.45);
+}
+.dark .color-card-purple {
+  background: linear-gradient(135deg, rgba(153, 133, 251, 0.18), rgba(255, 144, 141, 0.12));
+  border: 1.5px solid rgba(153, 133, 251, 0.45);
+}
+.dark .color-card-coral {
+  background: linear-gradient(135deg, rgba(255, 144, 141, 0.18), rgba(254, 163, 57, 0.12));
+  border: 1.5px solid rgba(255, 144, 141, 0.45);
+}
+
+.interactive-card {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.interactive-card:hover {
+  transform: translateY(-3px) scale(1.01);
+  box-shadow: 0 16px 35px -10px rgba(75, 169, 95, 0.25);
+}
+
+/* Custom subtle scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  body {
+    background: white !important;
+    color: #111827 !important;
+  }
+  @page {
+    margin: 12mm;
+  }
+}
+
+/* Notification Bell Shake/Wiggle animation every ~3 seconds */
+@keyframes bellWiggle {
+  0%, 80%, 100% { transform: rotate(0deg); }
+  83% { transform: rotate(-18deg); }
+  86% { transform: rotate(18deg); }
+  89% { transform: rotate(-12deg); }
+  92% { transform: rotate(12deg); }
+  95% { transform: rotate(-6deg); }
+  98% { transform: rotate(6deg); }
+}
+
+.animate-bell-wiggle {
+  animation: bellWiggle 2.5s infinite ease-in-out;
+}
+
+/* Bell bounce animation when flying request lands */
+@keyframes bellBounce {
+  0%, 100% { transform: translateY(0) scale(1); }
+  30% { transform: translateY(-8px) scale(1.3); }
+  50% { transform: translateY(2px) scale(0.95); }
+  75% { transform: translateY(-3px) scale(1.1); }
+}
+
+.animate-bell-bounce {
+  animation: bellBounce 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* Real-Time Glassmorphic App Wallpaper Support */
+html.has-wallpaper body,
+html.has-wallpaper #root,
+html.has-wallpaper .min-h-screen,
+html.has-wallpaper main {
+  background-color: transparent !important;
+  background: transparent !important;
+}
+
+/* Light mode overrides (~90-95% opacity white for cards, panels, sidebar) */
+html.has-wallpaper:not(.dark) .bg-slate-50:not(.min-h-screen),
+html.has-wallpaper:not(.dark) .bg-[#F8F9FA]:not(.min-h-screen) {
+  background-color: rgba(244, 247, 245, 0.88) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+html.has-wallpaper:not(.dark) .bg-white,
+html.has-wallpaper:not(.dark) [class*="bg-white"],
+html.has-wallpaper:not(.dark) aside,
+html.has-wallpaper:not(.dark) nav {
+  background-color: rgba(255, 255, 255, 0.93) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border-color: rgba(209, 222, 213, 0.6) !important;
+}
+
+html.has-wallpaper:not(.dark) header {
+  background-color: rgba(255, 255, 255, 0.92) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+}
+
+html.has-wallpaper:not(.dark) .bg-slate-100 {
+  background-color: rgba(241, 245, 249, 0.88) !important;
+}
+
+html.has-wallpaper:not(.dark) .bg-slate-50\/50 {
+  background-color: rgba(244, 247, 245, 0.88) !important;
+}
+
+/* Dark mode overrides */
+html.has-wallpaper.dark .dark\:bg-\[\#060608\],
+html.has-wallpaper.dark .dark\:bg-\[\#0C0C0C\],
+html.has-wallpaper.dark .bg-slate-900,
+html.has-wallpaper.dark .dark\:bg-slate-900 {
+  background-color: rgba(12, 12, 12, 0.52) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+html.has-wallpaper.dark .dark\:bg-\[\#121212\],
+html.has-wallpaper.dark .dark\:bg-\[\#141414\],
+html.has-wallpaper.dark .dark\:bg-slate-900,
+html.has-wallpaper.dark .dark\:bg-slate-800 {
+  background-color: rgba(18, 18, 18, 0.76) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border-color: rgba(38, 38, 38, 0.45) !important;
+}
+
+html.has-wallpaper.dark .dark\:bg-\[\#101010\] {
+  background-color: rgba(16, 16, 16, 0.45) !important;
+}
+
+/* Modals & Popups Glass */
+html.has-wallpaper .bg-white\/95 {
+  background-color: rgba(255, 255, 255, 0.8) !important;
+  backdrop-filter: blur(20px) !important;
+}
+
+html.has-wallpaper.dark .dark\:bg-\[\#141414\]\/95 {
+  background-color: rgba(18, 18, 18, 0.82) !important;
+  backdrop-filter: blur(20px) !important;
+}
+
+/* Top bar and sticky header glassmorphism */
+html.has-wallpaper .backdrop-blur-xl {
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+}
+
+html.has-wallpaper .bg-white\/80 {
+  background-color: rgba(255, 255, 255, 0.65) !important;
+}
+
+html.has-wallpaper.dark .dark\:bg-\[\#0C0C0C\]\/80 {
+  background-color: rgba(12, 12, 12, 0.62) !important;
+}
+
+/* Extra readability for text over wallpaper */
+html.has-wallpaper:not(.dark) .text-slate-400,
+html.has-wallpaper:not(.dark) .text-slate-400\/60,
+html.has-wallpaper:not(.dark) .text-slate-500 {
+  color: #334155 !important;
+}
+html.has-wallpaper.dark .text-slate-400 {
+  color: #cbd5e1 !important;
+}
+
+/* Subtle elevation shadow & layer depth for cards, buttons, and clickable items in light mode */
+html:not(.dark) .shadow-xs {
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.08), 0 1px 2px -1px rgba(15, 23, 42, 0.04) !important;
+}
+html:not(.dark) .shadow-sm {
+  box-shadow: 0 2px 6px 0 rgba(15, 23, 42, 0.09), 0 1px 2px -1px rgba(15, 23, 42, 0.05) !important;
+}
+html:not(.dark) .shadow-md {
+  box-shadow: 0 4px 14px -2px rgba(15, 23, 42, 0.12), 0 2px 4px -2px rgba(15, 23, 42, 0.06) !important;
+}
+html:not(.dark) .interactive-card:hover {
+  transform: translateY(-2px) scale(1.005);
+  box-shadow: 0 12px 28px -6px rgba(15, 23, 42, 0.14), 0 4px 10px -2px rgba(15, 23, 42, 0.08) !important;
+}
+

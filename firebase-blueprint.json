@@ -1,0 +1,301 @@
+{
+  "entities": {
+    "ClassItem": {
+      "title": "ClassItem",
+      "description": "A course or class room offering",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 150 },
+        "level": { "type": "string", "maxLength": 100 },
+        "timeFrom": { "type": "string", "maxLength": 20 },
+        "timeTo": { "type": "string", "maxLength": 20 },
+        "days": { "type": "string", "maxLength": 50 },
+        "room": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "name"]
+    },
+    "StudentItem": {
+      "title": "StudentItem",
+      "description": "Student record enrolled in courses",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 120 },
+        "studentNo": { "type": "string", "maxLength": 50 },
+        "sex": { "type": "string", "maxLength": 20 },
+        "dob": { "type": "string", "maxLength": 30 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "guardian": { "type": "string", "maxLength": 120 },
+        "address": { "type": "string", "maxLength": 200 },
+        "note": { "type": "string", "maxLength": 500 },
+        "password": { "type": "string", "maxLength": 50 },
+        "photo": { "type": "string", "maxLength": 1000 },
+        "classIds": { "type": "array" }
+      },
+      "required": ["id", "name"]
+    },
+    "SubjectItem": {
+      "title": "SubjectItem",
+      "description": "Course curriculum subject",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "classId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 100 },
+        "max": { "type": "number" },
+        "order": { "type": "number" }
+      },
+      "required": ["id", "classId", "name", "max"]
+    },
+    "AttendanceSession": {
+      "title": "AttendanceSession",
+      "description": "Attendance record sheet for a class on a specific date",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "classId": { "type": "string", "maxLength": 128 },
+        "date": { "type": "string", "maxLength": 20 },
+        "records": { "type": "object" },
+        "savedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "classId", "date", "records"]
+    },
+    "MarkDoc": {
+      "title": "MarkDoc",
+      "description": "Monthly exam marks for a subject",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "subjectId": { "type": "string", "maxLength": 128 },
+        "classId": { "type": "string", "maxLength": 128 },
+        "month": { "type": "string", "maxLength": 20 },
+        "scores": { "type": "object" }
+      },
+      "required": ["id", "subjectId", "classId", "month", "scores"]
+    },
+    "ClassworkTask": {
+      "title": "ClassworkTask",
+      "description": "Continuous assessment homework or project",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "classId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 150 },
+        "type": { "type": "string", "maxLength": 30 },
+        "max": { "type": "number" },
+        "date": { "type": "string", "maxLength": 20 },
+        "month": { "type": "string", "maxLength": 20 },
+        "scores": { "type": "object" }
+      },
+      "required": ["id", "classId", "title", "type", "max"]
+    },
+    "StudentPermission": {
+      "title": "StudentPermission",
+      "description": "Leave permission request from student",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "classId": { "type": "string", "maxLength": 128 },
+        "date": { "type": "string", "maxLength": 20 },
+        "reason": { "type": "string", "maxLength": 500 },
+        "category": { "type": "string", "maxLength": 50 },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "status": { "type": "string", "maxLength": 30 }
+      },
+      "required": ["id", "studentId", "classId", "date", "reason", "status"]
+    },
+    "AnnouncementBanner": {
+      "title": "AnnouncementBanner",
+      "description": "Promotional or announcement banner with 10s auto-slide",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 150 },
+        "description": { "type": "string", "maxLength": 500 },
+        "imageUrl": { "type": "string", "maxLength": 5000 },
+        "badge": { "type": "string", "maxLength": 50 },
+        "linkUrl": { "type": "string", "maxLength": 500 },
+        "bgColor": { "type": "string", "maxLength": 50 },
+        "order": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "title"]
+    },
+    "LibraryResource": {
+      "title": "LibraryResource",
+      "description": "Shared educational file, book, PDF or worksheet resource",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "category": { "type": "string", "maxLength": 50 },
+        "fileUrl": { "type": "string", "maxLength": 10000 },
+        "fileName": { "type": "string", "maxLength": 200 },
+        "fileSize": { "type": "string", "maxLength": 50 },
+        "fileType": { "type": "string", "maxLength": 50 },
+        "externalLink": { "type": "string", "maxLength": 500 },
+        "authorOrTeacher": { "type": "string", "maxLength": 100 },
+        "classId": { "type": "string", "maxLength": 128 },
+        "tags": { "type": "array" },
+        "downloadsCount": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "title", "category"]
+    },
+    "AppMetadata": {
+      "title": "AppMetadata",
+      "description": "Classroom instructor profile and system state",
+      "type": "object",
+      "properties": {
+        "profile": { "type": "object" },
+        "teacherSecurity": { "type": "object" },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["profile"]
+    },
+    "UserDoc": {
+      "title": "UserDoc",
+      "description": "User role and authentication profile tied to Firebase Auth UID",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "maxLength": 30 },
+        "name": { "type": "string", "maxLength": 150 },
+        "email": { "type": "string", "maxLength": 150 },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "classIds": { "type": "array" },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["uid", "role", "name"]
+    },
+    "CustomRecordItem": {
+      "title": "CustomRecordItem",
+      "description": "Additional user-imported records or custom school data",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "category": { "type": "string", "maxLength": 100 },
+        "title": { "type": "string", "maxLength": 200 },
+        "data": { "type": "object" },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "title"]
+    },
+    "StudentProgress": {
+      "title": "StudentProgress",
+      "description": "Gamification level, XP, daily quests and stats for a student",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "xp": { "type": "number" },
+        "level": { "type": "number" },
+        "title": { "type": "string", "maxLength": 50 },
+        "currentStreak": { "type": "number" },
+        "longestStreak": { "type": "number" },
+        "lastQuestCompletionDate": { "type": "string", "maxLength": 30 },
+        "dailyQuests": { "type": "array" },
+        "avatarId": { "type": "string", "maxLength": 50 },
+        "overallScore": { "type": "number" }
+      },
+      "required": ["id", "studentId", "xp", "level"]
+    },
+    "AccountRequest": {
+      "title": "AccountRequest",
+      "description": "Student request to restore or create a student portal account",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "studentNo": { "type": "string", "maxLength": 50 },
+        "studentName": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string", "maxLength": 60 },
+        "status": { "type": "string", "maxLength": 30 },
+        "reason": { "type": "string", "maxLength": 200 }
+      },
+      "required": ["id", "studentId", "studentName", "createdAt", "status"]
+    },
+    "ClassJoinRecord": {
+      "title": "ClassJoinRecord",
+      "description": "Live class check-in and Google Meet join log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "classId": { "type": "string", "maxLength": 128 },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "date": { "type": "string", "maxLength": 20 },
+        "joinedAt": { "type": "string", "maxLength": 60 },
+        "classStart": { "type": "string", "maxLength": 20 },
+        "minutesLate": { "type": "number" },
+        "status": { "type": "string", "maxLength": 20 }
+      },
+      "required": ["id", "classId", "studentId", "date", "classStart"]
+    }
+  },
+  "firestore": {
+    "/class_joins/{joinId}": {
+      "schema": "ClassJoinRecord",
+      "description": "Google Meet self check-in join timestamps"
+    },
+    "/account_requests/{requestId}": {
+      "schema": "AccountRequest",
+      "description": "Student requests for a new account after being deleted or unsynced"
+    },
+    "/studentProgress/{progressId}": {
+      "schema": "StudentProgress",
+      "description": "Adventurer Rank and gamification progress tracking per student"
+    },
+    "/classes/{classId}": {
+      "schema": "ClassItem",
+      "description": "Classes created by the instructor"
+    },
+    "/students/{studentId}": {
+      "schema": "StudentItem",
+      "description": "Student records and enrollments"
+    },
+    "/subjects/{subjectId}": {
+      "schema": "SubjectItem",
+      "description": "Subjects configured per class"
+    },
+    "/attendance/{sessionId}": {
+      "schema": "AttendanceSession",
+      "description": "Daily attendance registers"
+    },
+    "/marks/{markId}": {
+      "schema": "MarkDoc",
+      "description": "Exam marks by subject and month"
+    },
+    "/classwork/{taskId}": {
+      "schema": "ClassworkTask",
+      "description": "Assignments, homework, and quiz scores"
+    },
+    "/permissions/{permitId}": {
+      "schema": "StudentPermission",
+      "description": "Absence and permission excuse requests"
+    },
+    "/banners/{bannerId}": {
+      "schema": "AnnouncementBanner",
+      "description": "Animated announcement carousel banners"
+    },
+    "/resources/{resourceId}": {
+      "schema": "LibraryResource",
+      "description": "Resource library books, PDFs, worksheets and files"
+    },
+    "/app_settings/{docId}": {
+      "schema": "AppMetadata",
+      "description": "Global teacher profile and system security metadata"
+    },
+    "/users/{userId}": {
+      "schema": "UserDoc",
+      "description": "User role document tied to Firebase Auth UID"
+    },
+    "/custom_records/{recordId}": {
+      "schema": "CustomRecordItem",
+      "description": "Custom imported records and general information store"
+    }
+  }
+}

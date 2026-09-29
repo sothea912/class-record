@@ -1,0 +1,6 @@
+{
+  "name": "Class Record & Academic Prep",
+  "description": "Comprehensive classroom management app for tracking student attendance, exam results, classwork scores, and academic rankings.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

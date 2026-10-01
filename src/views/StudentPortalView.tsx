@@ -1,4 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
+import { db, auth } from '../utils/firebase';
+import { COLLECTIONS, sanitizeForFirestore } from '../utils/firestoreSync';
+import { APP_VERSION } from '../constants';
 import {
   Trophy,
   Calendar,
@@ -40,6 +45,9 @@ import {
   X,
   CalendarX,
   Check,
+  KeyRound,
+  Lock,
+  Loader2,
 } from 'lucide-react';
 import {
   AppState,
@@ -111,6 +119,7 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
   onShowToast,
   firestoreStatus = 'connected',
 }) => {
+  // Single source of truth: the student's document in the `students` collection via state.students
   const student = state.students.find(s => s.id === studentId);
 
   if (!student) {
@@ -347,88 +356,46 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
 
   // Profile Edit fields
   const [editName, setEditName] = useState(student?.name || '');
-  const [editSex, setEditSex] = useState(student?.sex || 'Female');
-  const [editDob, setEditDob] = useState(student?.dob || '');
+  const [editSex, setEditSex] = useState(student?.gender || student?.sex || 'Female');
+  const [editDob, setEditDob] = useState(student?.dateOfBirth || student?.dob || '');
   const [editPhone, setEditPhone] = useState(student?.phone || '');
-  const [editGuardian, setEditGuardian] = useState(student?.guardian || '');
+  const [editParentName, setEditParentName] = useState(student?.parentName || student?.guardian || '');
   const [editAddress, setEditAddress] = useState(student?.address || '');
   const [editPhoto, setEditPhoto] = useState<string | null>(student?.photo || null);
-  const [editPassword, setEditPassword] = useState(student?.password || '');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  // Password Change state (Fix 2: student self-service password update)
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   // Synchronize field state if student doc updates remotely
   React.useEffect(() => {
     if (student) {
       setEditName(student.name || '');
-      setEditSex(student.sex || 'Female');
-      setEditDob(student.dob || '');
+      setEditSex(student.gender || student.sex || 'Female');
+      setEditDob(student.dateOfBirth || student.dob || '');
       setEditPhone(student.phone || '');
-      setEditGuardian(student.guardian || '');
+      setEditParentName(student.parentName || student.guardian || '');
       setEditAddress(student.address || '');
       setEditPhoto(student.photo || null);
-      setEditPassword(student.password || '');
     }
   }, [
     student?.id,
     student?.name,
+    student?.gender,
     student?.sex,
+    student?.dateOfBirth,
     student?.dob,
     student?.phone,
+    student?.parentName,
     student?.guardian,
     student?.address,
     student?.photo,
-    student?.password,
   ]);
-
-  // Live 60-Minute Countdown Timer for Granted Password Reset
-  const [secondsRemaining, setSecondsRemaining] = useState<number>(() => {
-    if (student?.passwordResetStatus === 'granted' && student?.passwordResetExpiresAt) {
-      const ms = new Date(student.passwordResetExpiresAt).getTime() - Date.now();
-      return Math.max(0, Math.floor(ms / 1000));
-    }
-    return 0;
-  });
-
-  React.useEffect(() => {
-    if (student?.passwordResetStatus !== 'granted' || !student?.passwordResetExpiresAt) {
-      setSecondsRemaining(0);
-      return;
-    }
-
-    const calc = () => {
-      const ms = new Date(student.passwordResetExpiresAt!).getTime() - Date.now();
-      const secs = Math.max(0, Math.floor(ms / 1000));
-      setSecondsRemaining(secs);
-      if (secs === 0 && student.passwordResetStatus === 'granted') {
-        const updated: StudentItem = {
-          ...student,
-          passwordResetStatus: 'none',
-          passwordResetExpiresAt: undefined,
-        };
-        onUpdateStudent(updated);
-        onShowToast('Password change window expired. Original password preserved.', 'info');
-      }
-    };
-
-    calc();
-    const timer = setInterval(calc, 1000);
-    return () => clearInterval(timer);
-  }, [student?.passwordResetStatus, student?.passwordResetExpiresAt]);
-
-  const formatCountdown = (secs: number) => {
-    const mins = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${mins}m ${s < 10 ? '0' : ''}${s}s`;
-  };
-
-  const handleRequestPasswordChange = () => {
-    if (!student) return;
-    const updated: StudentItem = {
-      ...student,
-      passwordResetStatus: 'pending',
-    };
-    onUpdateStudent(updated);
-    onShowToast('Password change request sent to instructor for approval', 'success');
-  };
 
   // Permission Request Form fields
   const [permClassId, setPermClassId] = useState(studentClasses[0]?.id || '');
@@ -1010,39 +977,215 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
     input.click();
   };
 
-  const isPasswordGranted = Boolean(
-    student?.passwordResetStatus === 'granted' &&
-      student?.passwordResetExpiresAt &&
-      new Date(student.passwordResetExpiresAt).getTime() > Date.now()
-  );
-
-  const handleSaveProfile = (e: React.FormEvent) => {
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!student) return;
     if (!editName.trim()) {
-      onShowToast('Please enter your name', 'error');
+      onShowToast('Please enter your full name', 'error');
       return;
     }
-    const updated: StudentItem = {
-      ...student,
-      name: editName.trim(),
-      sex: editSex,
-      dob: editDob,
-      phone: editPhone.trim(),
-      guardian: editGuardian.trim(),
-      address: editAddress.trim(),
-      photo: editPhoto,
-    };
 
-    if (isPasswordGranted && editPassword.trim()) {
-      updated.password = editPassword.trim();
-      updated.passwordResetStatus = 'none';
-      updated.passwordResetExpiresAt = undefined;
-      onShowToast('Profile and new password updated successfully!', 'success');
-    } else {
-      onShowToast('Profile updated successfully', 'success');
+    const currentName = (student.name || '').trim();
+    const currentPhoto = student.photo || null;
+    const currentGender = student.gender || student.sex || 'Female';
+    const currentDateOfBirth = student.dateOfBirth || student.dob || '';
+    const currentPhone = (student.phone || '').trim();
+    const currentParentName = (student.parentName || student.guardian || '').trim();
+    const currentAddress = (student.address || '').trim();
+
+    const newName = editName.trim();
+    const newPhoto = editPhoto || null;
+    const newGender = editSex || 'Female';
+    const newDateOfBirth = editDob || '';
+    const newPhone = editPhone.trim();
+    const newParentName = editParentName.trim();
+    const newAddress = editAddress.trim();
+
+    // 1. Build strict changes diff: ONLY changed fields, strictly among:
+    // name, photo, gender, dateOfBirth, phone, parentName, address
+    // NEVER send loginName, sex, dob, guardian, id, studentNo, or undefined values!
+    const changes: Record<string, any> = {};
+
+    if (newName !== currentName) {
+      changes.name = newName;
+    }
+    if (newPhoto !== currentPhoto) {
+      changes.photo = newPhoto;
+    }
+    if (newGender !== currentGender) {
+      changes.gender = newGender;
+    }
+    if (newDateOfBirth !== currentDateOfBirth) {
+      changes.dateOfBirth = newDateOfBirth;
+    }
+    if (newPhone !== currentPhone) {
+      changes.phone = newPhone;
+    }
+    if (newParentName !== currentParentName) {
+      changes.parentName = newParentName;
+    }
+    if (newAddress !== currentAddress) {
+      changes.address = newAddress;
     }
 
-    onUpdateStudent(updated);
+    if (Object.keys(changes).length === 0) {
+      onShowToast('No profile changes detected to save.', 'info');
+      return;
+    }
+
+    // Always include updatedAt timestamp when saving changes
+    changes.updatedAt = new Date().toISOString();
+
+    setIsSavingProfile(true);
+    const docPath = `students/${student.id}`;
+
+    try {
+      // Ensure user ownership link in users/{uid} is guaranteed before writing
+      const currentUser = auth.currentUser;
+      if (currentUser?.uid) {
+        try {
+          const userDocRef = doc(db, COLLECTIONS.USERS, currentUser.uid);
+          const userSnap = await getDoc(userDocRef);
+          if (!userSnap.exists() || !userSnap.data()?.studentId) {
+            await setDoc(
+              userDocRef,
+              sanitizeForFirestore({
+                uid: currentUser.uid,
+                role: 'student',
+                studentId: student.id,
+                name: newName,
+                email: currentUser.email || '',
+                updatedAt: new Date().toISOString(),
+              }),
+              { merge: true }
+            );
+          }
+        } catch (linkErr) {
+          console.warn('[Student Profile Save] users link check warning:', linkErr);
+        }
+      }
+
+      // Single source of truth: Write directly to `students/{studentId}` in Firestore
+      const studentDocRef = doc(db, COLLECTIONS.STUDENTS, student.id);
+      await updateDoc(studentDocRef, changes);
+
+      // Keep active auth user session display name updated in localStorage
+      try {
+        const rawAuth = localStorage.getItem('auth_user');
+        if (rawAuth) {
+          const parsed = JSON.parse(rawAuth);
+          if (parsed?.role === 'student' && parsed.studentId === student.id) {
+            if (changes.name) parsed.name = changes.name;
+            localStorage.setItem('auth_user', JSON.stringify(parsed));
+          }
+        }
+      } catch (e) {}
+
+      // Update parent state
+      onUpdateStudent({
+        ...student,
+        ...changes,
+        // Maintain UI compatibility for views accessing sex, dob, guardian
+        sex: changes.gender || student.gender || student.sex,
+        dob: changes.dateOfBirth || student.dateOfBirth || student.dob,
+        guardian: changes.parentName !== undefined ? changes.parentName : (student.parentName || student.guardian),
+      });
+
+      onShowToast('Profile updated successfully!', 'success');
+    } catch (err: any) {
+      console.error('[Student Profile Save Error]:', err);
+      const errCode = err?.code || (err?.name ? String(err.name) : 'unknown-error');
+      const errMsg = err?.message || String(err);
+      onShowToast(`Failed to save profile [${errCode}] at path "${docPath}": ${errMsg}`, 'error');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError(null);
+
+    const curr = currentPassword.trim();
+    const next = newPassword.trim();
+    const conf = confirmPassword.trim();
+
+    // 1. Validate: all fields filled, new password at least 6 characters, new and confirm match, new password different from current.
+    if (!curr || !next || !conf) {
+      setPasswordError('Please fill in all password fields.');
+      return;
+    }
+    if (next.length < 6) {
+      setPasswordError('New password must be at least 6 characters long.');
+      return;
+    }
+    if (next !== conf) {
+      setPasswordError('New password and confirmation do not match.');
+      return;
+    }
+    if (next === curr) {
+      setPasswordError('New password must be different from current password.');
+      return;
+    }
+
+    const currentUser = auth.currentUser;
+    if (!currentUser || !currentUser.email) {
+      setPasswordError('Authentication session not found. Please log in again.');
+      return;
+    }
+
+    setIsChangingPassword(true);
+
+    try {
+      // 2. Re-authenticate the student with their current password (Firebase reauthenticateWithCredential)
+      const credential = EmailAuthProvider.credential(currentUser.email, curr);
+      try {
+        await reauthenticateWithCredential(currentUser, credential);
+      } catch (authErr: any) {
+        const code = authErr?.code || '';
+        if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+          setPasswordError('Current password is incorrect.');
+          setIsChangingPassword(false);
+          return;
+        } else if (code === 'auth/too-many-requests') {
+          setPasswordError('Too many attempts, please wait a few minutes.');
+          setIsChangingPassword(false);
+          return;
+        } else {
+          setPasswordError(authErr?.message || 'Authentication failed. Please verify your current password.');
+          setIsChangingPassword(false);
+          return;
+        }
+      }
+
+      // 3. Call Firebase updatePassword on the logged-in student's Auth account
+      await updatePassword(currentUser, next);
+
+      // 4. Immediately update the password in the student's document in Firestore (students/{studentId})
+      const studentDocRef = doc(db, COLLECTIONS.STUDENTS, student.id);
+      await updateDoc(studentDocRef, {
+        password: next,
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Update in local state
+      onUpdateStudent({
+        ...student,
+        password: next,
+      });
+
+      onShowToast('Password changed successfully!', 'success');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setPasswordError(null);
+      setIsChangePasswordOpen(false);
+    } catch (err: any) {
+      console.error('[Student Change Password Error]:', err);
+      setPasswordError(err?.message || 'Failed to update password. Please try again.');
+    } finally {
+      setIsChangingPassword(false);
+    }
   };
 
   const handleSubmitPermission = (e: React.FormEvent) => {
@@ -1152,7 +1295,7 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#060608] text-slate-900 dark:text-slate-100 transition-colors flex flex-col pb-28 lg:pb-12 max-w-[1200px] mx-auto w-full shadow-2xl relative">
+    <div className="min-h-screen bg-slate-50/95 dark:bg-[#09090b]/95 backdrop-blur-md text-slate-900 dark:text-slate-100 transition-colors flex flex-col pb-28 lg:pb-12 max-w-[1440px] mx-auto w-full shadow-2xl relative">
       {/* First-Time Onboarding Welcome Intro (Per-Browser LocalStorage Scoped) */}
       <StudentOnboardingModal
         studentId={studentId}
@@ -1170,7 +1313,7 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
       />
 
       {/* Top Header Navbar */}
-      <header className="sticky top-0 z-30 backdrop-blur-xl bg-white/80 dark:bg-[#0C0C0C]/80 border-b border-slate-200/60 dark:border-slate-800/60 px-4 sm:px-6 py-3">
+      <header className="sticky top-0 z-30 backdrop-blur-xl bg-white/80 dark:bg-[#0C0C0C]/80 border-b border-slate-200/60 dark:border-slate-800/60 px-4 sm:px-6 lg:px-8 py-3.5">
         <div className="w-full flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             {appLogo ? (
@@ -1267,111 +1410,139 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
       </header>
 
       {/* Main Container Layering Side Navigation (Desktop) vs Main Content Area */}
-      <div className="w-full flex flex-col lg:flex-row gap-6 p-4 sm:p-6 flex-grow">
-        {/* Desktop Sticky Sidebar Menu */}
-        <aside className="hidden lg:flex flex-col w-64 shrink-0 h-fit sticky top-20 bg-white dark:bg-[#121212] border border-slate-200/80 dark:border-slate-800 rounded-3xl p-5 shadow-xs space-y-4">
-          <div className="text-center pb-3 border-b border-slate-100 dark:border-slate-800">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Academics</span>
-            <span className="text-base font-black text-slate-900 dark:text-white block mt-1">Student Portal</span>
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <button
-              type="button"
-              onClick={() => setActiveTab('overview')}
-              className={`flex items-center gap-3 px-4 py-3 rounded-2xl text-xs sm:text-sm font-bold transition-all ${
-                activeTab === 'overview'
-                  ? 'bg-[#4BA95F]/10 text-[#4BA95F]'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60'
-              }`}
-            >
-              <Activity className="w-4 h-4" />
-              <span>Overview</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('attendance')}
-              className={`flex items-center gap-3 px-4 py-3 rounded-2xl text-xs sm:text-sm font-bold transition-all ${
-                activeTab === 'attendance'
-                  ? 'bg-[#4BA95F]/10 text-[#4BA95F]'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60'
-              }`}
-            >
-              <CalendarCheck className="w-4 h-4" />
-              <span>Attendance</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('library')}
-              className={`flex items-center gap-3 px-4 py-3 rounded-2xl text-xs sm:text-sm font-bold transition-all ${
-                activeTab === 'library'
-                  ? 'bg-[#4BA95F]/10 text-[#4BA95F]'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60'
-              }`}
-            >
-              <BookOpen className="w-4 h-4" />
-              <span>Resource Library</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('results')}
-              className={`flex items-center gap-3 px-4 py-3 rounded-2xl text-xs sm:text-sm font-bold transition-all ${
-                activeTab === 'results'
-                  ? 'bg-[#4BA95F]/10 text-[#4BA95F]'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60'
-              }`}
-            >
-              <Trophy className="w-4 h-4" />
-              <span>Scores &amp; Results</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('classes')}
-              className={`flex items-center gap-3 px-4 py-3 rounded-2xl text-xs sm:text-sm font-bold transition-all ${
-                activeTab === 'classes'
-                  ? 'bg-[#4BA95F]/10 text-[#4BA95F]'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60'
-              }`}
-            >
-              <Layers className="w-4 h-4" />
-              <span>Classes</span>
-            </button>
-
-            <button
-              type="button"
+      <div className="w-full flex flex-col lg:flex-row gap-6 lg:gap-8 p-4 sm:p-6 lg:p-8 flex-grow">
+        {/* Desktop Polished Full-Height Sidebar Menu */}
+        <aside className="hidden lg:flex flex-col w-64 xl:w-72 shrink-0 self-stretch sticky top-20 bg-white/90 dark:bg-[#121214]/90 backdrop-blur-xl border border-slate-200/80 dark:border-white/10 rounded-3xl p-5 shadow-lg space-y-6 justify-between min-h-[calc(100vh-6.5rem)]">
+          <div className="space-y-5">
+            {/* Top Compact Profile Card */}
+            <div
               onClick={() => setActiveTab('profile')}
-              className={`flex items-center gap-3 px-4 py-3 rounded-2xl text-xs sm:text-sm font-bold transition-all ${
-                activeTab === 'profile'
-                  ? 'bg-[#4BA95F]/10 text-[#4BA95F]'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60'
-              }`}
+              className="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-white/5 border border-slate-200/60 dark:border-white/10 flex items-center gap-3.5 cursor-pointer hover:bg-slate-100/80 dark:hover:bg-white/10 transition-all group"
+              title="View and Edit Student Profile"
             >
-              <User className="w-4 h-4" />
-              <span>Profile</span>
-            </button>
+              {student.photo ? (
+                <img
+                  src={student.photo}
+                  alt={student.name}
+                  className="w-12 h-12 rounded-2xl object-cover ring-2 ring-[#4BA95F]/30 shrink-0 shadow-sm group-hover:scale-105 transition-transform"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#4BA95F] to-[#77DDFA] text-white font-extrabold flex items-center justify-center text-base shrink-0 shadow-sm group-hover:scale-105 transition-transform">
+                  {student.name.slice(0, 2).toUpperCase()}
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-black text-slate-900 dark:text-white truncate block">
+                    {student.name}
+                  </span>
+                </div>
+                <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 truncate">
+                  {student.studentNo || 'Student'} &middot; {currentClassObj?.name || 'Class'}
+                </p>
+                <span className="inline-block mt-1 px-2 py-0.5 rounded-md text-[9px] font-extrabold uppercase tracking-wider bg-[#4BA95F]/15 text-[#4BA95F] border border-[#4BA95F]/20">
+                  Student
+                </span>
+              </div>
+            </div>
+
+            {/* Navigation links */}
+            <div>
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider px-3 block mb-2">
+                Main Menu
+              </span>
+              <div className="flex flex-col gap-1.5">
+                {[
+                  { id: 'overview' as const, label: 'Overview', icon: Activity },
+                  { id: 'attendance' as const, label: 'Attendance', icon: CalendarCheck },
+                  { id: 'library' as const, label: 'Resource Library', icon: BookOpen },
+                  { id: 'results' as const, label: 'Scores & Results', icon: Trophy },
+                  { id: 'classes' as const, label: 'Classes', icon: Layers },
+                  { id: 'profile' as const, label: 'Profile', icon: User },
+                ].map(item => {
+                  const Icon = item.icon;
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setActiveTab(item.id)}
+                      className={`flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-[#4BA95F]/15 text-[#4BA95F] dark:text-[#5ec874] shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100/80 dark:hover:bg-white/5'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Icon className={`w-4.5 h-4.5 ${isActive ? 'text-[#4BA95F]' : 'text-slate-400 dark:text-slate-500'}`} />
+                        <span>{item.label}</span>
+                      </div>
+                      {isActive && (
+                        <span className="w-1.5 h-4 rounded-full bg-[#4BA95F]" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Enrolled class selector for desktop if multiple classes */}
+            {studentClasses.length > 1 && (
+              <div className="pt-3 border-t border-slate-100 dark:border-white/10 space-y-1.5">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider px-1 block">Class Session</span>
+                <select
+                  value={activeClassId}
+                  onChange={e => setSelectedClassId(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none"
+                >
+                  {studentClasses.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
-          {/* Enrolled class selector for desktop if multiple classes */}
-          {studentClasses.length > 1 && (
-            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-1">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Class Session</span>
-              <select
-                value={activeClassId}
-                onChange={e => setSelectedClassId(e.target.value)}
-                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-semibold focus:outline-none"
+          {/* Quick Action Shortcuts at bottom of Sidebar */}
+          <div className="pt-4 border-t border-slate-100 dark:border-white/10 space-y-2">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider px-1 block">Quick Actions</span>
+            <button
+              type="button"
+              onClick={() => setIsLeaveFormOpen(true)}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-white/5 transition-colors cursor-pointer"
+            >
+              <div className="w-6 h-6 rounded-lg bg-amber-500/15 text-amber-500 flex items-center justify-center shrink-0">
+                <Mail className="w-3.5 h-3.5" />
+              </div>
+              <span>Request Leave</span>
+            </button>
+
+            {myResult && (
+              <button
+                type="button"
+                onClick={handleDownloadReportCard}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-white/5 transition-colors cursor-pointer"
               >
-                {studentClasses.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+                <div className="w-6 h-6 rounded-lg bg-purple-500/15 text-purple-500 flex items-center justify-center shrink-0">
+                  <Download className="w-3.5 h-3.5" />
+                </div>
+                <span>Report Card (.doc)</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setIsScoresOverlayOpen(true)}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-white/5 transition-colors cursor-pointer"
+            >
+              <div className="w-6 h-6 rounded-lg bg-emerald-500/15 text-emerald-500 flex items-center justify-center shrink-0">
+                <Trophy className="w-3.5 h-3.5" />
+              </div>
+              <span>Scores Standings</span>
+            </button>
+          </div>
         </aside>
 
         {/* Mobile Quick Actions Backdrop: Dims & subtly blurs dashboard behind the menu while keeping nav & panel sharp */}
@@ -1532,23 +1703,25 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
           {/* =================================================================== */}
           {activeTab === 'overview' && (
             <div className="space-y-6">
-              {/* Profile-only Banner */}
-              <div className="bg-gradient-to-r from-blue-600 via-blue-800 to-indigo-900 dark:from-purple-800 dark:via-indigo-900 dark:to-purple-950 text-white border border-blue-400/30 dark:border-purple-500/20 rounded-3xl p-5 shadow-xl flex flex-col sm:flex-row sm:items-center gap-5 justify-start">
-                {student.photo ? (
-                  <img
-                    src={student.photo}
-                    alt={student.name}
-                    className="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover ring-4 ring-white/20 shrink-0 shadow-lg"
-                  />
-                ) : (
-                  <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-white/10 backdrop-blur-md text-white font-extrabold flex items-center justify-center text-xl sm:text-2xl shrink-0 shadow-lg ring-4 ring-white/10">
-                    {student.name.slice(0, 2).toUpperCase()}
-                  </div>
-                )}
-                <div className="text-left space-y-2">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight leading-snug">
+              {/* Profile-only Welcome Banner */}
+              <div className="bg-gradient-to-r from-blue-600 via-blue-800 to-indigo-900 dark:from-purple-800 dark:via-indigo-900 dark:to-purple-950 text-white border border-blue-400/30 dark:border-purple-500/20 rounded-3xl p-4 sm:p-5 shadow-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3.5 sm:gap-5">
+                {/* Left side on Desktop / Top Row on Phone: Avatar + Info */}
+                <div className="flex items-center gap-3.5 sm:gap-5 min-w-0 flex-1">
+                  {student.photo ? (
+                    <img
+                      src={student.photo}
+                      alt={student.name}
+                      className="w-16 h-16 sm:w-24 sm:h-24 rounded-full object-cover ring-2 sm:ring-4 ring-white/20 shrink-0 shadow-md"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 sm:w-24 sm:h-24 rounded-full bg-white/10 backdrop-blur-md text-white font-extrabold flex items-center justify-center text-lg sm:text-2xl shrink-0 shadow-md ring-2 sm:ring-4 ring-white/10">
+                      {student.name.slice(0, 2).toUpperCase()}
+                    </div>
+                  )}
+
+                  <div className="text-left min-w-0 flex-1 space-y-0.5 sm:space-y-1">
+                    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                      <h2 className="text-base sm:text-2xl font-black text-white tracking-tight leading-snug break-words">
                         Welcome, {student.name}
                       </h2>
                       {(() => {
@@ -1556,7 +1729,7 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                         if (!warning) return null;
                         return (
                           <span
-                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold border shadow-xs ${warning.badgeClass}`}
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border shadow-xs ${warning.badgeClass}`}
                             title={warning.description}
                           >
                             <AlertCircle className="w-3.5 h-3.5 shrink-0" />
@@ -1565,42 +1738,43 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                         );
                       })()}
                     </div>
-                    <p className="text-xs sm:text-sm text-blue-100/90 dark:text-purple-200/90 font-semibold mt-1">
+                    <p className="text-xs sm:text-sm text-blue-100/90 dark:text-purple-200/90 font-semibold break-words">
                       {student.studentNo ? `${student.studentNo} · ` : ''}{currentClassObj?.name || 'Classroom'}
                     </p>
                   </div>
-
-                  {currentClassObj && (
-                    <div className="pt-1">
-                      {(() => {
-                        const config = getJoinButtonConfig();
-                        return (
-                          <button
-                            type="button"
-                            disabled={config.disabled}
-                            onClick={() => {
-                              if (config.reason === 'future') {
-                                onShowToast("Sorry, your class hasn't started yet.", 'info');
-                                return;
-                              }
-                              handleJoinClass();
-                            }}
-                            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 ${
-                              config.disabled
-                                ? 'bg-slate-700/40 text-slate-400 border border-slate-600/30 cursor-not-allowed opacity-50'
-                                : config.reason === 'future'
-                                ? 'bg-blue-800/60 hover:bg-blue-700 text-blue-100 dark:bg-purple-700/60 dark:hover:bg-purple-700 dark:text-purple-200 border border-blue-400/30 dark:border-purple-500/30 cursor-pointer'
-                                : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer shadow-md shadow-emerald-500/10'
-                            }`}
-                          >
-                            <Video className="w-4 h-4 shrink-0" />
-                            <span>{config.text}</span>
-                          </button>
-                        );
-                      })()}
-                    </div>
-                  )}
                 </div>
+
+                {/* Join Class button: On phone, full width on its own row below; on desktop, right-aligned and vertically centered */}
+                {currentClassObj && (
+                  <div className="w-full sm:w-auto shrink-0 flex items-center sm:self-center">
+                    {(() => {
+                      const config = getJoinButtonConfig();
+                      return (
+                        <button
+                          type="button"
+                          disabled={config.disabled}
+                          onClick={() => {
+                            if (config.reason === 'future') {
+                              onShowToast("Sorry, your class hasn't started yet.", 'info');
+                              return;
+                            }
+                            handleJoinClass();
+                          }}
+                          className={`w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all active:scale-95 shadow-xs ${
+                            config.disabled
+                              ? 'bg-slate-700/40 text-slate-400 border border-slate-600/30 cursor-not-allowed opacity-50'
+                              : config.reason === 'future'
+                              ? 'bg-blue-800/60 hover:bg-blue-700 text-blue-100 dark:bg-purple-700/60 dark:hover:bg-purple-700 dark:text-purple-200 border border-blue-400/30 dark:border-purple-500/30 cursor-pointer'
+                              : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer shadow-md shadow-emerald-500/10'
+                          }`}
+                        >
+                          <Video className="w-4 h-4 shrink-0" />
+                          <span>{config.text}</span>
+                        </button>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
 
               {/* Beautiful, High-Structure Grid & Lists (Bank style) */}
@@ -1616,6 +1790,13 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                   onNavigateTab={setActiveTab}
                   onOpenScoresOverlay={() => setIsScoresOverlayOpen(true)}
                 />
+
+                {/* Shared Version label directly below the six stat tiles with small gap, centered */}
+                <div className="text-center pt-2 pb-1 select-none">
+                  <span className="text-[10px] text-slate-600/80 dark:text-white/50 font-mono italic tracking-wide">
+                    {APP_VERSION}
+                  </span>
+                </div>
               </div>
             </div>
           )}
@@ -1730,7 +1911,7 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                 </div>
 
                 {filteredAttendance.length > 0 ? (
-                  <div className="space-y-2.5">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
                     {filteredAttendance.map(item => (
                       <div
                         key={`${item.classId}_${item.date}`}
@@ -1796,6 +1977,13 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* Shared Version label directly below attendance content */}
+              <div className="text-center pt-2 pb-1 select-none">
+                <span className="text-[10px] text-slate-600/80 dark:text-white/50 font-mono italic tracking-wide">
+                  {APP_VERSION}
+                </span>
+              </div>
             </div>
           )}
 
@@ -1803,12 +1991,20 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
           {/* 3. DEDICATED STUDENT RESOURCE LIBRARY */}
           {/* =================================================================== */}
           {activeTab === 'library' && (
-            <ResourceLibraryView
-              state={state}
-              isTeacher={false}
-              onShowToast={onShowToast}
-              selectedClassId={activeClassId}
-            />
+            <div className="space-y-4">
+              <ResourceLibraryView
+                state={state}
+                isTeacher={false}
+                onShowToast={onShowToast}
+                selectedClassId={activeClassId}
+              />
+              {/* Shared Version label directly below library content */}
+              <div className="text-center pt-2 pb-1 select-none">
+                <span className="text-[10px] text-slate-600/80 dark:text-white/50 font-mono italic tracking-wide">
+                  {APP_VERSION}
+                </span>
+              </div>
+            </div>
           )}
 
           {/* =================================================================== */}
@@ -1922,6 +2118,13 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                   </p>
                 </div>
               )}
+
+              {/* Shared Version label directly below scores content */}
+              <div className="text-center pt-2 pb-1 select-none">
+                <span className="text-[10px] text-slate-600/80 dark:text-white/50 font-mono italic tracking-wide">
+                  {APP_VERSION}
+                </span>
+              </div>
             </div>
           )}
 
@@ -1934,7 +2137,7 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                 My Class Schedule &amp; Timetable
               </h2>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
                 {studentClasses.map(c => (
                   <div
                     key={c.id}
@@ -1983,6 +2186,13 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                   </div>
                 ))}
               </div>
+
+              {/* Shared Version label directly below classes content */}
+              <div className="text-center pt-2 pb-1 select-none">
+                <span className="text-[10px] text-slate-600/80 dark:text-white/50 font-mono italic tracking-wide">
+                  {APP_VERSION}
+                </span>
+              </div>
             </div>
           )}
 
@@ -1990,13 +2200,13 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
           {/* 6. PROFILE TAB */}
           {/* =================================================================== */}
           {activeTab === 'profile' && (
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-7 shadow-xs space-y-6">
+            <div className="max-w-4xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xs space-y-6">
               <div>
                 <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
                   Customize Profile &amp; Interface
                 </h2>
                 <p className="text-xs sm:text-sm text-slate-500">
-                  Set your photo, edit your name, and switch between Light and Dark interface modes.
+                  Set your photo, edit your academic profile details, and switch between Light and Dark interface modes.
                 </p>
               </div>
 
@@ -2007,26 +2217,26 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                     Appearance Theme
                   </span>
                   <span className="text-xs text-slate-500">
-                    Currently active: <strong className="font-semibold text-blue-600 dark:text-blue-400">{isDark ? 'Dark Mode' : 'Light Mode'}</strong>
+                    Currently active: <strong className="font-semibold text-[#4BA95F]">{isDark ? 'Dark Mode' : 'Light Mode'}</strong>
                   </span>
                 </div>
                 <button
                   type="button"
                   onClick={onToggleTheme}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs sm:text-sm font-bold shadow-xs cursor-pointer"
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs sm:text-sm font-bold shadow-xs cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
                 >
                   {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
                   <span>{isDark ? 'Switch to Light' : 'Switch to Dark'}</span>
                 </button>
               </div>
 
-              <form onSubmit={handleSaveProfile} className="space-y-4 text-xs sm:text-sm">
+              <form onSubmit={handleSaveProfile} className="space-y-5 text-xs sm:text-sm">
                 <div className="flex items-center gap-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
                   {editPhoto ? (
                     <img
                       src={editPhoto}
                       alt={student.name}
-                      className="w-16 h-16 rounded-full object-cover ring-2 ring-blue-500 shrink-0"
+                      className="w-16 h-16 rounded-full object-cover ring-2 ring-[#4BA95F] shrink-0 shadow-sm"
                     />
                   ) : (
                     <div className="w-16 h-16 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-slate-400 shrink-0">
@@ -2038,7 +2248,7 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                       <button
                         type="button"
                         onClick={handlePickPhoto}
-                        className="px-3.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 hover:bg-slate-100 shadow-xs transition-all cursor-pointer"
+                        className="px-3.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 shadow-xs transition-all cursor-pointer"
                       >
                         Change Photo
                       </button>
@@ -2052,10 +2262,11 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                         </button>
                       )}
                     </div>
+                    <p className="text-[11px] text-slate-400">Recommended square photo (PNG or JPG)</p>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
                   <div>
                     <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
                       Full Name
@@ -2065,7 +2276,7 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                       required
                       value={editName}
                       onChange={e => setEditName(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-900 dark:text-white font-medium"
+                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-[#4BA95F] focus:outline-none text-slate-900 dark:text-white font-medium"
                     />
                   </div>
 
@@ -2075,8 +2286,8 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                     </label>
                     <select
                       value={editSex}
-                      onChange={e => setEditSex(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-900 dark:text-white"
+                      onChange={e => setEditSex(e.target.value as any)}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-[#4BA95F] focus:outline-none text-slate-900 dark:text-white"
                     >
                       <option value="Female">Female</option>
                       <option value="Male">Male</option>
@@ -2092,7 +2303,7 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                       type="date"
                       value={editDob}
                       onChange={e => setEditDob(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none font-mono text-slate-900 dark:text-white"
+                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-[#4BA95F] focus:outline-none font-mono text-slate-900 dark:text-white"
                     />
                   </div>
 
@@ -2105,77 +2316,174 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                       placeholder="e.g. +855 12 345 678"
                       value={editPhone}
                       onChange={e => setEditPhone(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-900 dark:text-white"
+                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-[#4BA95F] focus:outline-none text-slate-900 dark:text-white"
                     />
-                  </div>
-                </div>
-
-                <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <label className="text-slate-900 dark:text-white font-bold text-xs sm:text-sm flex items-center gap-2">
-                        <ShieldCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                        <span>Portal Password</span>
-                      </label>
-                    </div>
-
-                    <div>
-                      {isPasswordGranted ? (
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-xs font-bold">
-                          <Clock3 className="w-3.5 h-3.5 animate-spin" />
-                          <span>Editable ({formatCountdown(secondsRemaining)})</span>
-                        </span>
-                      ) : student.passwordResetStatus === 'pending' ? (
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 text-xs font-bold animate-pulse">
-                          <Clock3 className="w-3.5 h-3.5" />
-                          <span>Request Sent (Pending Approval)</span>
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={handleRequestPasswordChange}
-                          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
-                        >
-                          <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
-                          <span>Request Change Password</span>
-                        </button>
-                      )}
-                    </div>
                   </div>
 
                   <div>
+                    <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
+                      Parent / Guardian Name
+                    </label>
                     <input
-                      type="password"
-                      disabled={!isPasswordGranted}
-                      value={isPasswordGranted ? editPassword : '••••••••'}
-                      onChange={e => setEditPassword(e.target.value)}
-                      placeholder={isPasswordGranted ? 'Enter your new password' : 'Password locked'}
-                      className={`w-full px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-mono transition-all ${
-                        isPasswordGranted
-                          ? 'bg-white dark:bg-slate-900 border-2 border-emerald-500 ring-2 ring-emerald-500/20 text-slate-900 dark:text-white focus:outline-none'
-                          : 'bg-slate-200/60 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60 text-slate-400 cursor-not-allowed select-none'
-                      }`}
+                      type="text"
+                      placeholder="e.g. Parent or Guardian"
+                      value={editParentName}
+                      onChange={e => setEditParentName(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-[#4BA95F] focus:outline-none text-slate-900 dark:text-white"
                     />
+                  </div>
 
-                    {isPasswordGranted && (
-                      <div className="mt-2 p-2.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 flex items-center justify-between gap-2">
-                        <span className="font-medium text-[11px] sm:text-xs">
-                          Instructor granted permission. Enter your new password and click <strong>Save Profile Changes</strong> below.
-                        </span>
-                      </div>
-                    )}
+                  <div>
+                    <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
+                      Residential Address
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Street / City"
+                      value={editAddress}
+                      onChange={e => setEditAddress(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-[#4BA95F] focus:outline-none text-slate-900 dark:text-white"
+                    />
                   </div>
                 </div>
 
                 <div className="pt-2">
                   <button
                     type="submit"
-                    className="w-full py-3 bg-[#4BA95F] hover:bg-[#3e8f50] text-white font-bold rounded-xl text-xs sm:text-sm shadow-md transition-all active:scale-95 cursor-pointer"
+                    disabled={isSavingProfile}
+                    className="w-full py-3 bg-[#4BA95F] hover:bg-[#3e8f50] disabled:opacity-60 text-white font-bold rounded-xl text-xs sm:text-sm shadow-md transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2"
                   >
-                    Save Profile Changes
+                    {isSavingProfile ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Saving Profile Changes…</span>
+                      </>
+                    ) : (
+                      <span>Save Profile Changes</span>
+                    )}
                   </button>
                 </div>
               </form>
+
+              {/* Portal Security & Password (Fix 2: Student can change own password) */}
+              <div className="p-5 sm:p-6 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-[#4BA95F]" />
+                      <span>Portal Account Password</span>
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      Change your portal login password anytime using your current password.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsChangePasswordOpen(prev => !prev);
+                      setPasswordError(null);
+                    }}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs sm:text-sm font-bold shadow-xs cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shrink-0"
+                  >
+                    <KeyRound className="w-4 h-4 text-purple-500" />
+                    <span>{isChangePasswordOpen ? 'Cancel' : 'Change Password'}</span>
+                  </button>
+                </div>
+
+                {isChangePasswordOpen && (
+                  <form onSubmit={handleChangePassword} className="pt-3 border-t border-slate-200 dark:border-slate-700 space-y-4">
+                    {passwordError && (
+                      <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 text-rose-700 dark:text-rose-300 text-xs font-semibold flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+                        <span>{passwordError}</span>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+                      <div>
+                        <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1 text-xs">
+                          Current Password
+                        </label>
+                        <input
+                          type="password"
+                          required
+                          value={currentPassword}
+                          onChange={e => setCurrentPassword(e.target.value)}
+                          placeholder="Current password"
+                          className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl text-xs sm:text-sm font-mono focus:ring-2 focus:ring-[#4BA95F] focus:outline-none text-slate-900 dark:text-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1 text-xs">
+                          New Password
+                        </label>
+                        <input
+                          type="password"
+                          required
+                          minLength={6}
+                          value={newPassword}
+                          onChange={e => setNewPassword(e.target.value)}
+                          placeholder="Min 6 characters"
+                          className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl text-xs sm:text-sm font-mono focus:ring-2 focus:ring-[#4BA95F] focus:outline-none text-slate-900 dark:text-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1 text-xs">
+                          Confirm New Password
+                        </label>
+                        <input
+                          type="password"
+                          required
+                          minLength={6}
+                          value={confirmPassword}
+                          onChange={e => setConfirmPassword(e.target.value)}
+                          placeholder="Repeat new password"
+                          className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl text-xs sm:text-sm font-mono focus:ring-2 focus:ring-[#4BA95F] focus:outline-none text-slate-900 dark:text-white"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsChangePasswordOpen(false);
+                          setCurrentPassword('');
+                          setNewPassword('');
+                          setConfirmPassword('');
+                          setPasswordError(null);
+                        }}
+                        className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isChangingPassword}
+                        className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:opacity-60 text-white text-xs font-bold shadow-md cursor-pointer transition-all flex items-center gap-1.5"
+                      >
+                        {isChangingPassword ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Updating Password…</span>
+                          </>
+                        ) : (
+                          <span>Confirm Password Change</span>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+
+              {/* Shared Version label directly below profile content */}
+              <div className="text-center pt-2 pb-1 select-none">
+                <span className="text-[10px] text-slate-600/80 dark:text-white/50 font-mono italic tracking-wide">
+                  {APP_VERSION}
+                </span>
+              </div>
             </div>
           )}
         </main>
@@ -2309,11 +2617,6 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
           </div>
         </div>
       )}
-
-      {/* Footer Build Watermark */}
-      <footer className="text-center py-6 text-[10px] text-slate-700 dark:text-slate-400 font-medium font-mono border-t border-slate-200/60 dark:border-slate-800 mt-10">
-        <span>Student Portal &middot; UI build 2026-09-28-r2</span>
-      </footer>
 
       {/* Embedded Animation Keyframes */}
       <style>{`

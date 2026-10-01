@@ -96,97 +96,94 @@ export const StudentDashboardWidgets: React.FC<StudentDashboardWidgetsProps> = (
 
   return (
     <div className="space-y-6">
-      {/* 4-Item Bank Style Square Grid (Attendance, Class Rank, Schedule, Score) */}
-      <div className="grid grid-cols-3 gap-3">
+      {/* 6 Balanced Stat Metric Cards (Attendance, Class Rank, Schedule, Score, Subject Perf, Instructor) */}
+      <div className="grid grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
         {/* Attendance Card */}
         <button
           type="button"
           onClick={() => setActiveModal('attendance')}
-          className="aspect-square bg-white dark:bg-[#121212] border border-slate-200/80 dark:border-slate-800 rounded-2xl p-2.5 flex flex-col items-center justify-center text-center transition-all hover:scale-105 active:scale-95 shadow-xs group"
+          className="h-[145px] sm:h-[155px] bg-white/90 dark:bg-[#121214]/90 backdrop-blur-xl border border-slate-200/80 dark:border-white/10 rounded-2xl p-3 sm:p-3.5 flex flex-col items-center justify-center text-center transition-all hover:-translate-y-0.5 hover:border-emerald-500/50 dark:hover:border-emerald-500/50 hover:shadow-md active:scale-95 shadow-xs group cursor-pointer"
         >
-          <div className="w-10 h-10 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
+          <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
             <CheckSquare className="w-5 h-5 animate-pulse-slow" />
           </div>
-          <span className="text-sm font-black text-slate-900 dark:text-white block leading-tight">{attRateDisplay}</span>
-          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5 leading-none">Attendance</span>
+          <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white block leading-tight">{attRateDisplay}</span>
+          <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 mt-1 leading-none">Attendance</span>
         </button>
 
         {/* Class Rank Card */}
         <button
           type="button"
           onClick={() => setActiveModal('rank')}
-          className="aspect-square bg-white dark:bg-[#121212] border border-slate-200/80 dark:border-slate-800 rounded-2xl p-2.5 flex flex-col items-center justify-center text-center transition-all hover:scale-105 active:scale-95 shadow-xs group"
+          className="h-[145px] sm:h-[155px] bg-white/90 dark:bg-[#121214]/90 backdrop-blur-xl border border-slate-200/80 dark:border-white/10 rounded-2xl p-3 sm:p-3.5 flex flex-col items-center justify-center text-center transition-all hover:-translate-y-0.5 hover:border-amber-500/50 dark:hover:border-amber-500/50 hover:shadow-md active:scale-95 shadow-xs group cursor-pointer"
         >
-          <div className="w-10 h-10 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
+          <div className="w-11 h-11 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
             <Trophy className="w-5 h-5" />
           </div>
-          <span className="text-sm font-black text-slate-900 dark:text-white block leading-tight">
+          <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white block leading-tight">
             {myResult?.hasData && myResult?.rank !== null ? `#${myResult.rank}` : '—'}
           </span>
-          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5 leading-none">Rank</span>
+          <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 mt-1 leading-none">Class Rank</span>
         </button>
 
         {/* Schedule Card */}
         <button
           type="button"
           onClick={() => setActiveModal('schedule')}
-          className="aspect-square bg-white dark:bg-[#121212] border border-slate-200/80 dark:border-slate-800 rounded-2xl p-2.5 flex flex-col items-center justify-center text-center transition-all hover:scale-105 active:scale-95 shadow-xs group"
+          className="h-[145px] sm:h-[155px] bg-white/90 dark:bg-[#121214]/90 backdrop-blur-xl border border-slate-200/80 dark:border-white/10 rounded-2xl p-3 sm:p-3.5 flex flex-col items-center justify-center text-center transition-all hover:-translate-y-0.5 hover:border-sky-500/50 dark:hover:border-sky-500/50 hover:shadow-md active:scale-95 shadow-xs group cursor-pointer"
         >
-          <div className="w-10 h-10 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
+          <div className="w-11 h-11 rounded-2xl bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
             <Clock className="w-5 h-5" />
           </div>
-          <span className="text-sm font-black text-slate-900 dark:text-white block leading-tight truncate max-w-full">
+          <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white block leading-tight truncate max-w-full">
             {currentClassObj?.startTime || currentClassObj?.timeFrom || '20:00'}
           </span>
-          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5 leading-none">Class Schedule</span>
+          <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 mt-1 leading-none">Class Schedule</span>
         </button>
-      </div>
 
-      {/* Row 2: Secondary Metrics (Score, Subject Performance, Campus & Instructor) */}
-      <div className="grid grid-cols-3 gap-3">
         {/* Score Card */}
         <button
           type="button"
           onClick={() => onOpenScoresOverlay?.()}
-          className="aspect-square bg-white dark:bg-[#121212] border border-slate-200/80 dark:border-slate-800 rounded-2xl p-2.5 flex flex-col items-center justify-center text-center transition-all hover:scale-105 active:scale-95 shadow-xs group"
+          className="h-[145px] sm:h-[155px] bg-white/90 dark:bg-[#121214]/90 backdrop-blur-xl border border-slate-200/80 dark:border-white/10 rounded-2xl p-3 sm:p-3.5 flex flex-col items-center justify-center text-center transition-all hover:-translate-y-0.5 hover:border-purple-500/50 dark:hover:border-purple-500/50 hover:shadow-md active:scale-95 shadow-xs group cursor-pointer"
         >
-          <div className="w-10 h-10 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
+          <div className="w-11 h-11 rounded-2xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
             <Trophy className="w-5 h-5 text-purple-500" />
           </div>
-          <span className="text-sm font-black text-slate-900 dark:text-white block leading-tight">
+          <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white block leading-tight">
             {myResult?.hasData ? `${myResult.total} Pts` : '—'}
           </span>
-          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5 leading-none">Score</span>
+          <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 mt-1 leading-none">Score</span>
         </button>
 
         {/* Subject Performance Card */}
         <button
           type="button"
           onClick={() => setActiveModal('subject_perf')}
-          className="aspect-square bg-white dark:bg-[#121212] border border-slate-200/80 dark:border-slate-800 rounded-2xl p-2.5 flex flex-col items-center justify-center text-center transition-all hover:scale-105 active:scale-95 shadow-xs group"
+          className="h-[145px] sm:h-[155px] bg-white/90 dark:bg-[#121214]/90 backdrop-blur-xl border border-slate-200/80 dark:border-white/10 rounded-2xl p-3 sm:p-3.5 flex flex-col items-center justify-center text-center transition-all hover:-translate-y-0.5 hover:border-blue-500/50 dark:hover:border-blue-500/50 hover:shadow-md active:scale-95 shadow-xs group cursor-pointer"
         >
-          <div className="w-10 h-10 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
+          <div className="w-11 h-11 rounded-2xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
             <FileText className="w-5 h-5" />
           </div>
-          <span className="text-sm font-black text-slate-900 dark:text-white block leading-tight">
+          <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white block leading-tight">
             {periodResults && periodResults.subs.length > 0 ? periodResults.subs.length : 0} Subs
           </span>
-          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5 leading-none">Subject Perf</span>
+          <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 mt-1 leading-none">Subject Perf</span>
         </button>
 
         {/* Campus & Instructor Card */}
         <button
           type="button"
           onClick={() => setActiveModal('recent_att')}
-          className="aspect-square bg-white dark:bg-[#121212] border border-slate-200/80 dark:border-slate-800 rounded-2xl p-2.5 flex flex-col items-center justify-center text-center transition-all hover:scale-105 active:scale-95 shadow-xs group"
+          className="h-[145px] sm:h-[155px] bg-white/90 dark:bg-[#121214]/90 backdrop-blur-xl border border-slate-200/80 dark:border-white/10 rounded-2xl p-3 sm:p-3.5 flex flex-col items-center justify-center text-center transition-all hover:-translate-y-0.5 hover:border-purple-500/50 dark:hover:border-purple-500/50 hover:shadow-md active:scale-95 shadow-xs group cursor-pointer"
         >
-          <div className="w-10 h-10 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
+          <div className="w-11 h-11 rounded-2xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
             <Building className="w-5 h-5" />
           </div>
-          <span className="text-sm font-black text-slate-900 dark:text-white block leading-tight truncate max-w-full">
+          <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white block leading-tight truncate max-w-full">
             {state.profile.name || 'Teacher'}
           </span>
-          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5 leading-none">Instructor</span>
+          <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 mt-1 leading-none">Instructor</span>
         </button>
       </div>
 

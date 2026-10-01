@@ -76,10 +76,10 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
 
   const [formName, setFormName] = useState(student?.name || '');
   const [formStudentNo, setFormStudentNo] = useState(student?.studentNo || '');
-  const [formSex, setFormSex] = useState(student?.sex || '');
-  const [formDob, setFormDob] = useState(student?.dob || '');
+  const [formSex, setFormSex] = useState(student?.gender || student?.sex || '');
+  const [formDob, setFormDob] = useState(student?.dateOfBirth || student?.dob || '');
   const [formPhone, setFormPhone] = useState(student?.phone || '');
-  const [formGuardian, setFormGuardian] = useState(student?.guardian || '');
+  const [formGuardian, setFormGuardian] = useState(student?.parentName || student?.guardian || '');
   const [formAddress, setFormAddress] = useState(student?.address || '');
   const [formNote, setFormNote] = useState(student?.note || '');
   const [formPassword, setFormPassword] = useState(student?.password || '');
@@ -243,11 +243,15 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
     const updated: StudentItem = {
       ...student,
       name: formName.trim() || student.name,
+      loginName: formName.trim() || student.loginName || student.name,
       studentNo: formStudentNo.trim() || student.studentNo,
       sex: formSex || student.sex,
+      gender: formSex || student.gender || student.sex,
       dob: formDob || student.dob,
+      dateOfBirth: formDob || student.dateOfBirth || student.dob,
       phone: formPhone.trim() || student.phone,
-      guardian: formGuardian.trim() || student.guardian,
+      guardian: formGuardian.trim() || student.parentName || student.guardian,
+      parentName: formGuardian.trim() || student.parentName || student.guardian,
       address: formAddress.trim() || student.address,
       note: formNote.trim() || student.note,
       password: formPassword.trim() || student.password,
@@ -350,7 +354,7 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
               setFormSex(student.sex || '');
               setFormDob(student.dob || '');
               setFormPhone(student.phone || '');
-              setFormGuardian(student.guardian || '');
+              setFormGuardian(student.parentName || student.guardian || '');
               setFormAddress(student.address || '');
               setFormNote(student.note || '');
               setFormPassword(student.password || '');
@@ -619,7 +623,7 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
               </div>
               <div className="p-3 rounded-xl bg-slate-50 dark:bg-[#181818] border border-slate-100 dark:border-[#242424]">
                 <span className="text-slate-400 font-medium block">Parent / Guardian</span>
-                <span className="font-semibold text-slate-800 dark:text-slate-200">{student.guardian || 'No guardian recorded'}</span>
+                <span className="font-semibold text-slate-800 dark:text-slate-200">{student.parentName || student.guardian || 'No guardian recorded'}</span>
               </div>
             </div>
 

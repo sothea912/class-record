@@ -34,12 +34,16 @@ export type PasswordResetStatus = 'none' | 'pending' | 'granted' | 'normal';
 export interface StudentItem {
   id: string;
   name: string;
+  loginName?: string;
   photo?: string | null;
   studentNo?: string;
   sex?: string;
+  gender?: string;
   dob?: string;
+  dateOfBirth?: string;
   phone?: string;
   guardian?: string;
+  parentName?: string;
   address?: string;
   note?: string;
   password?: string;

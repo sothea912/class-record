@@ -149,24 +149,28 @@ export function getStudentAuthEmail(student: { id: string; studentNo?: string; n
  */
 export function resolveStudentLoginEmail(
   identifier: string,
-  roster: { id: string; studentNo?: string; name: string }[] = []
+  roster: { id: string; studentNo?: string; name: string; loginName?: string }[] = []
 ): string {
   const cleanInput = identifier.trim().toLowerCase();
   if (cleanInput.includes('@')) {
     return cleanInput;
   }
 
-  // 1. Try matching against roster by Name (case-insensitive)
-  const byName = roster.find(s => s.name && s.name.trim().toLowerCase() === cleanInput);
+  // 1. Try matching against roster by loginName or Name (case-insensitive)
+  const byName = roster.find(
+    s => (s.loginName && s.loginName.trim().toLowerCase() === cleanInput) ||
+         (s.name && s.name.trim().toLowerCase() === cleanInput)
+  );
   if (byName) {
     return getStudentAuthEmail(byName);
   }
 
-  // 2. Try matching by studentNo or student id with normalization
+  // 2. Try matching by studentNo, student id, loginName, or name with normalization
   const normInput = normalizeStudentIdentifier(cleanInput);
   const byIdOrNo = roster.find(s => {
     if (s.studentNo && normalizeStudentIdentifier(s.studentNo) === normInput) return true;
     if (s.id && normalizeStudentIdentifier(s.id) === normInput) return true;
+    if (s.loginName && normalizeStudentIdentifier(s.loginName) === normInput) return true;
     if (s.name && normalizeStudentIdentifier(s.name) === normInput) return true;
     return false;
   });
@@ -180,16 +184,17 @@ export function resolveStudentLoginEmail(
 
 /**
  * Synchronizes a public, non-sensitive student lookup document in `student_lookup/{studentId}`.
- * Contains only name, normalized student ID, and canonical email. Zero passwords or sensitive data.
+ * Contains only name/loginName, normalized student ID, and canonical email. Zero passwords or sensitive data.
  * Publicly readable so unauthenticated login pages on any fresh device can map student names to real emails.
  */
 export async function syncStudentLookupDoc(student: StudentItem): Promise<void> {
   try {
     const lookupRef = doc(db, COLLECTIONS.STUDENT_LOOKUP, student.id);
+    const lookupName = student.loginName || student.name;
     const payload = {
       id: student.id,
-      name: student.name,
-      nameLower: (student.name || '').toLowerCase().trim(),
+      name: lookupName,
+      nameLower: (lookupName || '').toLowerCase().trim(),
       studentNo: student.studentNo || '',
       studentNoNorm: normalizeStudentIdentifier(student.studentNo || student.id),
       authEmail: getStudentAuthEmail(student),
@@ -1005,24 +1010,45 @@ export async function loginStudentDirect(
 
   // 2. Fetch the corresponding users/{uid} document now that we are authenticated
   const userDocRef = doc(db, COLLECTIONS.USERS, uid);
-  const userDocSnap = await getDoc(userDocRef);
+  const userDocSnap = await getDoc(userDocRef).catch(() => null);
 
-  if (userDocSnap.exists()) {
-    const userData = userDocSnap.data();
-    return {
-      studentId: userData.studentId || identifier,
-      name: userData.name || identifier,
-    };
-  } else {
-    // If users doc was not seeded, match from the local roster
-    const matched = roster.find(
-      s => s.name?.toLowerCase() === identifier.toLowerCase() || s.studentNo?.toLowerCase() === identifier.toLowerCase()
-    );
-    return {
-      studentId: matched?.id || identifier,
-      name: matched?.name || identifier,
-    };
+  const matched = roster.find(
+    s => s.name?.toLowerCase() === identifier.toLowerCase() ||
+         s.studentNo?.toLowerCase() === identifier.toLowerCase() ||
+         s.id?.toLowerCase() === identifier.toLowerCase()
+  );
+
+  const resolvedStudentId = userDocSnap?.exists() && userDocSnap.data()?.studentId
+    ? userDocSnap.data().studentId
+    : (matched?.id || identifier);
+  const resolvedName = userDocSnap?.exists() && userDocSnap.data()?.name
+    ? userDocSnap.data().name
+    : (matched?.name || identifier);
+
+  // Guarantee users/{uid} document is saved with studentId for Firestore rule authorization
+  if (!userDocSnap?.exists() || !userDocSnap.data()?.studentId) {
+    try {
+      await setDoc(
+        userDocRef,
+        sanitizeForFirestore({
+          uid,
+          role: 'student',
+          studentId: resolvedStudentId,
+          name: resolvedName,
+          email,
+          updatedAt: new Date().toISOString(),
+        }),
+        { merge: true }
+      );
+    } catch (docErr) {
+      console.warn('[LoginStudentDirect] Could not ensure users doc:', docErr);
+    }
   }
+
+  return {
+    studentId: resolvedStudentId,
+    name: resolvedName,
+  };
 }
 
 /**

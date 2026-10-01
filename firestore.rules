@@ -31,6 +31,12 @@ service cloud.firestore {
         request.auth.uid == studentId
         || (exists(/databases/$(database)/documents/users/$(request.auth.uid))
             && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.studentId == studentId)
+        || (resource != null && resource.data != null && (
+          resource.data.authUid == request.auth.uid
+          || (resource.data.authEmail != null && resource.data.authEmail == request.auth.token.email)
+          || (resource.data.studentNo != null && request.auth.token.email == resource.data.studentNo + '@centralacademy.app')
+          || (resource.data.id != null && request.auth.token.email == resource.data.id + '@centralacademy.app')
+        ))
       );
     }
 
@@ -61,7 +67,7 @@ service cloud.firestore {
       allow create: if isSignedIn() && (request.auth.uid == userId || isTeacher());
       allow update: if isSignedIn() && (
         isTeacher()
-        || (request.auth.uid == userId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'studentId']))
+        || (request.auth.uid == userId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']))
       );
       allow delete: if isTeacher();
     }
@@ -81,10 +87,19 @@ service cloud.firestore {
       allow create, update, delete: if isTeacher();
     }
 
-    // Students: Teachers can manage all; students can read only their own document (never write)
+    // Students: Teachers can manage all; students can read only their own document, and update allowed profile fields & password
     match /students/{studentId} {
       allow read: if isTeacher() || isStudent(studentId);
-      allow create, update, delete: if isTeacher();
+      allow create, delete: if isTeacher();
+      allow update: if isTeacher() || (
+        isStudent(studentId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'photo', 'gender', 'dateOfBirth', 'phone', 'parentName', 'address', 'password', 'updatedAt'
+        ])
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'id', 'loginName', 'studentNo', 'classIds', 'authUid', 'authEmail', 'accountStatus', 'passwordResetStatus', 'passwordResetExpiresAt', 'role', 'roles', 'marks', 'attendance'
+        ])
+      );
     }
 
     // Subjects: Readable by all signed-in users, writable by teacher

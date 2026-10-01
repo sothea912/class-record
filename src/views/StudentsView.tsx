@@ -39,6 +39,7 @@ interface StudentsViewProps {
   selectedClassId: string;
   onNavigate?: (view: any) => void;
   onOpenStudentProfile?: (studentId: string) => void;
+  onShowToast?: (text: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 export const StudentsView: React.FC<StudentsViewProps> = ({
@@ -48,6 +49,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   selectedClassId,
   onNavigate,
   onOpenStudentProfile,
+  onShowToast,
 }) => {
   const [search, setSearch] = useState('');
   const [classFilter, setClassFilter] = useState<string>(selectedClassId || '');
@@ -97,10 +99,14 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
         ...resetStudentTarget,
         password: resetNewPassword.trim(),
       }, resetStudentTarget);
-      alert(`Password for ${resetStudentTarget.name} has been updated to: ${resetNewPassword.trim()}. The student can now log into their portal with this password.`);
+      if (onShowToast) {
+        onShowToast(`Password for ${resetStudentTarget.name} updated to: ${resetNewPassword.trim()}`, 'success');
+      }
       setIsResetModalOpen(false);
     } catch (err: any) {
-      alert(`Failed to reset password: ${err.message || String(err)}`);
+      if (onShowToast) {
+        onShowToast(`Failed to reset password: ${err.message || String(err)}`, 'error');
+      }
     } finally {
       setIsResetLoading(false);
     }
@@ -149,10 +155,10 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     setModalSyncFeedback(null);
     setFormName(s.name);
     setFormStudentNo(s.studentNo || '');
-    setFormSex(s.sex || '');
-    setFormDob(s.dob || '');
+    setFormSex(s.gender || s.sex || '');
+    setFormDob(s.dateOfBirth || s.dob || '');
     setFormPhone(s.phone || '');
-    setFormGuardian(s.guardian || '');
+    setFormGuardian(s.parentName || s.guardian || '');
     setFormAddress(s.address || '');
     setFormNote(s.note || '');
     setFormPassword(s.password || '');
@@ -250,17 +256,21 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
   const handleSave = () => {
     if (!formName.trim()) {
-      alert('Please enter the student full name');
+      if (onShowToast) onShowToast('Please enter the student full name', 'error');
       return;
     }
     const studentObj: StudentItem = {
       id: editingStudent ? editingStudent.id : uid('stu'),
       name: formName.trim(),
+      loginName: formName.trim(),
       studentNo: formStudentNo.trim(),
       sex: formSex,
+      gender: formSex,
       dob: formDob,
+      dateOfBirth: formDob,
       phone: formPhone.trim(),
       guardian: formGuardian.trim(),
+      parentName: formGuardian.trim(),
       address: formAddress.trim(),
       note: formNote.trim(),
       password: formPassword.trim(),
@@ -553,38 +563,10 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 {/* Footer status & Actions */}
                 <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
                   <div className="flex items-center gap-1">
-                    {s.passwordResetStatus === 'pending' ? (
-                      <button
-                        type="button"
-                        onClick={() => handleGrantPasswordReset(s)}
-                        className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold shadow-sm flex items-center gap-1.5 transition-all animate-pulse"
-                        title="Student requested permission to change password. Click to grant 1-hour access."
-                      >
-                        <KeyRound className="w-3 h-3" />
-                        <span>Grant Password Change</span>
-                      </button>
-                    ) : s.passwordResetStatus === 'granted' && s.passwordResetExpiresAt && new Date(s.passwordResetExpiresAt).getTime() > Date.now() ? (
-                      <div className="flex items-center gap-1.5">
-                        <span
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800"
-                          title={`Permission active until ${new Date(s.passwordResetExpiresAt).toLocaleTimeString()}`}
-                        >
-                          <Clock3 className="w-3 h-3" />
-                          <span>Permission Granted (1h)</span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleRevokePasswordReset(s)}
-                          className="text-[10px] text-slate-400 hover:text-rose-500 underline"
-                          title="Revoke permission immediately"
-                        >
-                          Lock
-                        </button>
-                      </div>
-                    ) : s.password ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400" title={`Student password: ${s.password}`}>
-                        <KeyRound className="w-3 h-3" />
-                        <span>Portal set</span>
+                    {s.password ? (
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400" title={`Student password: ${s.password}`}>
+                        <KeyRound className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                        <span className="font-mono">{s.password}</span>
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-500">
@@ -685,7 +667,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                       <td className="py-3 px-4">{s.sex || '—'}</td>
                       <td className="py-3 px-4 font-mono">{s.dob || '—'}</td>
                       <td className="py-3 px-4">{s.phone || '—'}</td>
-                      <td className="py-3 px-4">{s.guardian || '—'}</td>
+                      <td className="py-3 px-4">{s.parentName || s.guardian || '—'}</td>
                       <td className="py-3 px-4">
                         <div className="flex flex-wrap gap-1">
                           {classNames.length > 0 ? (
@@ -703,24 +685,10 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                         </div>
                       </td>
                       <td className="py-3 px-4">
-                        {s.passwordResetStatus === 'pending' ? (
-                          <button
-                            type="button"
-                            onClick={() => handleGrantPasswordReset(s)}
-                            className="px-2 py-0.5 rounded-md bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold shadow-sm animate-pulse"
-                            title="Click to grant 1-hour password change permission"
-                          >
-                            Grant Change
-                          </button>
-                        ) : s.passwordResetStatus === 'granted' && s.passwordResetExpiresAt && new Date(s.passwordResetExpiresAt).getTime() > Date.now() ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
-                            <Clock3 className="w-2.5 h-2.5" />
-                            <span>Granted (1h)</span>
-                          </span>
-                        ) : s.password ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
-                            <KeyRound className="w-3 h-3" />
-                            <span>Set</span>
+                        {s.password ? (
+                          <span className="inline-flex items-center gap-1.5 text-[11px] font-mono font-medium text-emerald-600 dark:text-emerald-400" title={`Password: ${s.password}`}>
+                            <KeyRound className="w-3 h-3 text-emerald-500" />
+                            <span>{s.password}</span>
                           </span>
                         ) : (
                           <span className="text-[11px] text-amber-500 font-medium">None</span>

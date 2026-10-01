@@ -19,6 +19,7 @@ import {
   X,
 } from 'lucide-react';
 import { AppState, AuthUser } from '../types';
+import { APP_VERSION } from '../constants';
 import {
   signInTeacherWithGoogle,
   loginTeacherWithPassword,
@@ -604,7 +605,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
         {/* Version text directly below the card */}
         <div className="text-center mt-3 select-none">
           <span className="text-[10px] text-slate-600/80 dark:text-white/50 font-mono italic tracking-wide">
-            V.026.1.0.0.AB
+            {APP_VERSION}
           </span>
         </div>
       </main>

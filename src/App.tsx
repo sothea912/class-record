@@ -299,7 +299,6 @@ export default function App() {
       if (idx >= 0) next[idx] = updatedStudent;
       return { ...prev, students: next };
     });
-    syncSaveStudent(updatedStudent);
 
     // Update active auth session name if changed
     if (authUser?.role === 'student' && authUser.studentId === updatedStudent.id) {
@@ -1045,6 +1044,7 @@ export default function App() {
                 onDeleteStudent={handleDeleteStudent}
                 selectedClassId={selectedClassId}
                 onNavigate={setCurrentView}
+                onShowToast={showToast}
                 onOpenStudentProfile={id => {
                   setSelectedStudentProfileId(id);
                   setSelectedStudentProfileTab('overview');

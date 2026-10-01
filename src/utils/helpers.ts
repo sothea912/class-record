@@ -501,3 +501,81 @@ export function sortStudents(list: StudentItem[], key: string): StudentItem[] {
   if (key === 'recent') return arr.reverse();
   return arr.sort(byName);
 }
+
+/**
+ * Formats a permission request submission / decision date & time in local device time.
+ * Output format: "M/D/YYYY · HH:mm" (e.g. "9/30/2026 · 20:24").
+ * If the input is a legacy date-only string (e.g. "2026-09-30"), it returns only the date (e.g. "9/30/2026")
+ * and avoids displaying fake times (such as 00:00 or 07:00).
+ */
+export function formatRequestDateTime(val?: any): string {
+  if (!val) return '';
+
+  // 1. Firestore Timestamp or object with toDate / seconds
+  if (typeof val === 'object' && val !== null) {
+    if (typeof val.toDate === 'function') {
+      const d: Date = val.toDate();
+      if (!isNaN(d.getTime())) {
+        const datePart = d.toLocaleDateString();
+        const hours = String(d.getHours()).padStart(2, '0');
+        const mins = String(d.getMinutes()).padStart(2, '0');
+        return `${datePart} · ${hours}:${mins}`;
+      }
+    }
+    if (typeof val.seconds === 'number') {
+      const d = new Date(val.seconds * 1000);
+      if (!isNaN(d.getTime())) {
+        const datePart = d.toLocaleDateString();
+        const hours = String(d.getHours()).padStart(2, '0');
+        const mins = String(d.getMinutes()).padStart(2, '0');
+        return `${datePart} · ${hours}:${mins}`;
+      }
+    }
+  }
+
+  // 2. Numeric timestamp (ms)
+  if (typeof val === 'number') {
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) {
+      const datePart = d.toLocaleDateString();
+      const hours = String(d.getHours()).padStart(2, '0');
+      const mins = String(d.getMinutes()).padStart(2, '0');
+      return `${datePart} · ${hours}:${mins}`;
+    }
+  }
+
+  // 3. String timestamp
+  if (typeof val === 'string') {
+    const str = val.trim();
+    if (!str) return '';
+
+    // Check if it is a pure date string (no time component, e.g. "2026-09-30", "9/30/2026")
+    const hasTimeComponent = str.includes('T') || (str.includes(':') && !str.startsWith('http'));
+    if (!hasTimeComponent) {
+      // Split YYYY-MM-DD to avoid timezone shifting when creating Date
+      const parts = str.split(/[-/]/);
+      if (parts.length === 3 && parts[0].length === 4) {
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) - 1;
+        const d = parseInt(parts[2], 10);
+        const dateObj = new Date(y, m, d);
+        return dateObj.toLocaleDateString();
+      }
+      const d = new Date(str);
+      return !isNaN(d.getTime()) ? d.toLocaleDateString() : str;
+    }
+
+    // Has time component (e.g. ISO string "2026-10-01T13:40:00.000Z")
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      const datePart = d.toLocaleDateString();
+      const hours = String(d.getHours()).padStart(2, '0');
+      const mins = String(d.getMinutes()).padStart(2, '0');
+      return `${datePart} · ${hours}:${mins}`;
+    }
+
+    return str;
+  }
+
+  return '';
+}

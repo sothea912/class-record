@@ -137,6 +137,7 @@ export interface StudentPermissionRequest {
   category: string;
   createdAt: string;
   status: 'Pending' | 'Approved' | 'Acknowledged' | 'Denied';
+  decidedAt?: string;
 }
 
 export interface DailyQuest {

@@ -589,6 +589,7 @@ export default function App() {
     const updatedPerm: StudentPermissionRequest = {
       ...perm,
       status,
+      decidedAt: new Date().toISOString(),
     };
 
     // Update local state

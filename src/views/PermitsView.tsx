@@ -19,7 +19,7 @@ import {
   MessageCircle
 } from 'lucide-react';
 import { AppState, AttendanceStatus, StudentPermissionRequest } from '../types';
-import { attKey, studentsOf, uid } from '../utils/helpers';
+import { attKey, formatRequestDateTime, studentsOf, uid } from '../utils/helpers';
 
 interface PermitsViewProps {
   state: AppState;
@@ -92,6 +92,7 @@ export const PermitsView: React.FC<PermitsViewProps> = ({
     const studentObj = state.students.find(s => s.id === manualStudentId);
     if (!studentObj) return;
 
+    const nowIso = new Date().toISOString();
     const req: StudentPermissionRequest = {
       id: uid('perm'),
       studentId: manualStudentId,
@@ -99,8 +100,9 @@ export const PermitsView: React.FC<PermitsViewProps> = ({
       date: manualDate,
       reason: manualReason.trim(),
       category: manualCategory,
-      createdAt: new Date().toISOString(),
-      status: 'Approved' // Manual teacher-logged excuses are approved by default
+      createdAt: nowIso,
+      status: 'Approved', // Manual teacher-logged excuses are approved by default
+      decidedAt: nowIso,
     };
 
     if (onAddManualPermission) {
@@ -504,7 +506,7 @@ export const PermitsView: React.FC<PermitsViewProps> = ({
                   <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-3">
                     <span className="text-[10px] text-slate-400 flex items-center gap-1">
                       <Clock className="w-3 h-3" />
-                      <span>Submitted: {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : 'Today'}</span>
+                      <span>Submitted: {formatRequestDateTime(p.createdAt) || 'Today'}</span>
                     </span>
 
                     {p.status === 'Pending' ? (
@@ -529,7 +531,10 @@ export const PermitsView: React.FC<PermitsViewProps> = ({
                     ) : (
                       <div className="text-[11px] font-medium text-slate-400 italic flex items-center gap-1">
                         <ShieldCheck className="w-3.5 h-3.5 text-slate-300" />
-                        <span>Action Logged</span>
+                        <span>
+                          {p.status === 'Approved' ? 'Granted' : 'Denied'}
+                          {p.decidedAt ? ` · ${formatRequestDateTime(p.decidedAt)}` : ''}
+                        </span>
                       </div>
                     )}
                   </div>

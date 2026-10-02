@@ -429,6 +429,18 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
                     </span>
                   );
                 })()}
+
+                {/* Activity & Exam Achievement Badges */}
+                {(state.studentBadges || []).filter(b => b.studentId === student.id).map(badge => (
+                  <span
+                    key={badge.id}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30"
+                    title={badge.description}
+                  >
+                    <Trophy className="w-3.5 h-3.5 text-amber-500" />
+                    <span>{badge.title}</span>
+                  </span>
+                ))}
               </div>
 
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">

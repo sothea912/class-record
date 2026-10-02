@@ -9,7 +9,17 @@ interface ModalProps {
   children: React.ReactNode;
   footer?: React.ReactNode;
   maxWidth?: string;
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | 'full' | string;
 }
+
+const sizeClasses: Record<string, string> = {
+  sm: 'max-w-md',
+  md: 'max-w-lg',
+  lg: 'max-w-2xl',
+  xl: 'max-w-4xl',
+  '2xl': 'max-w-6xl',
+  full: 'max-w-[95vw]',
+};
 
 export const Modal: React.FC<ModalProps> = ({
   isOpen,
@@ -18,7 +28,9 @@ export const Modal: React.FC<ModalProps> = ({
   children,
   footer,
   maxWidth = 'max-w-2xl',
+  size,
 }) => {
+  const resolvedMaxWidth = size ? (sizeClasses[size] || size) : maxWidth;
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -53,7 +65,7 @@ export const Modal: React.FC<ModalProps> = ({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 8 }}
             transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-            className={`relative w-full ${maxWidth} bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-2xl rounded-2xl overflow-hidden z-10 flex flex-col max-h-[90vh]`}
+            className={`relative w-full ${resolvedMaxWidth} bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-2xl rounded-2xl overflow-hidden z-10 flex flex-col max-h-[90vh]`}
           >
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/50">

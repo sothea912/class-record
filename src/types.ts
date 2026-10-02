@@ -5,6 +5,7 @@ export interface AttendanceRecord {
   reason?: string;
   minutesLate?: number;
   joinedAt?: string;
+  source?: string; // 'auto-join'
 }
 
 export interface AttendanceSession {
@@ -70,7 +71,7 @@ export interface MarkDoc {
   scores: Record<string, number>; // studentId -> score
 }
 
-export type ClassworkType = 'homework' | 'project' | 'achievement' | 'participation';
+export type ClassworkType = 'homework' | 'project' | 'achievement' | 'participation' | 'quiz' | 'exam';
 
 export interface ClassworkTask {
   id: string;
@@ -102,6 +103,7 @@ export interface TeacherSecurity {
   redFrom?: number; // default 10 min
   yellowPenalty?: number; // default 0 pts
   redPenalty?: number; // default 2 pts
+  lateGracePeriod?: number; // default 10 min
 }
 
 export interface ClassJoinRecord {
@@ -232,6 +234,196 @@ export interface ClassCancellationItem {
   dismissedByStudents?: string[];
 }
 
+export type HomeworkQuestionType = 'short' | 'long' | 'choice' | 'checkbox' | 'dropdown' | 'boolean' | 'photo';
+
+export interface HomeworkQuestion {
+  id: string;
+  title: string;
+  description?: string;
+  image?: string;
+  type: HomeworkQuestionType;
+  points: number;
+  required: boolean;
+  options?: string[];
+  optionImages?: Record<number, string>;
+  sectionHeading?: string;
+  sectionId?: string;
+}
+
+export type ActivityKind = 'homework' | 'quiz' | 'exam' | 'custom';
+
+export interface ExamSection {
+  id: string;
+  title: string;
+  instructions?: string;
+  readingPassage?: string;
+  image?: string;
+  timeLimitMinutes?: number;
+  weightPercent?: number;
+}
+
+export interface GradingScaleItem {
+  grade: string;
+  minPercent: number;
+  maxPercent: number;
+}
+
+export interface ActivityItem {
+  id: string; // act_{uid} or qz_{uid} or ex_{uid}
+  kind: ActivityKind;
+  title: string;
+  instructions?: string;
+  classIds: string[];
+  month: string;
+  dueDateTime?: string;
+  opensAt?: string;
+  closesAt?: string;
+  durationMinutes?: number;
+  maxScore: number;
+  allowLate?: boolean;
+  shuffleQuestions?: boolean;
+  shuffleChoices?: boolean;
+  attemptsAllowed?: number;
+  resultsRelease?: 'immediate' | 'manual';
+  pageMode?: 'one_per_page' | 'all_on_one_page';
+  sections?: ExamSection[];
+  passPercent?: number;
+  gradingScale?: GradingScaleItem[];
+  activityTypeLabel?: string;
+  scoringColumn?: 'homework' | 'quiz' | 'exam' | 'participation';
+  attachmentName?: string;
+  attachmentType?: string;
+  attachmentData?: string;
+  externalLink?: string;
+  questionsCount?: number;
+  questions?: HomeworkQuestion[];
+  published: boolean;
+  badgesEnabled?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ActivityAttempt {
+  id: string; // ${activityId}_${studentId} or ${activityId}_${studentId}_${attemptNumber}
+  activityId: string;
+  studentId: string;
+  classId: string;
+  kind: ActivityKind;
+  attemptNumber: number;
+  startedAt: string;
+  serverStartTimeMs?: number;
+  durationMinutes: number;
+  extraMinutesGranted?: number;
+  submittedAt?: string;
+  status: 'not_started' | 'in_progress' | 'submitted' | 'auto_submitted' | 'marked' | 'resubmit_requested';
+  answers: Record<string, any>;
+  files?: HomeworkSubmissionFile[];
+  externalLink?: string;
+  tabSwitchesCount?: number;
+  score?: number;
+  sectionScores?: Record<string, number>;
+  grade?: string;
+  passed?: boolean;
+  questionMarks?: Record<string, number>;
+  questionComments?: Record<string, string>;
+  teacherNote?: string;
+  markedAt?: string;
+  markedBy?: string;
+  resultsReleased?: boolean;
+  retakeAllowed?: boolean;
+  history?: any[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StudentBadgeItem {
+  id: string;
+  studentId: string;
+  badgeType: 'perfect_score' | 'top_3' | 'most_improved' | 'never_missed_quiz';
+  title: string;
+  description: string;
+  icon: string;
+  awardedAt: string;
+  activityId?: string;
+}
+
+export interface HomeworkItem {
+  id: string; // hw_{uid}
+  title: string;
+  instructions: string;
+  type: 'upload' | 'form';
+  classIds: string[];
+  dueDateTime: string; // ISO string
+  maxScore: number;
+  allowLate: boolean;
+  published: boolean;
+  createdAt: string;
+  updatedAt: string;
+  attachmentName?: string;
+  attachmentType?: string;
+  attachmentData?: string; // Base64 data (compressed images)
+  externalLink?: string; // Link to Google Drive / Telegram
+  hasSubcollectionFile?: boolean;
+  subcollectionFileId?: string;
+  questions?: HomeworkQuestion[];
+}
+
+export interface HomeworkFileDoc {
+  id: string;
+  homeworkId: string;
+  fileName: string;
+  fileType: string;
+  base64Data: string;
+  size: number;
+  uploadedAt: string;
+}
+
+export interface HomeworkAnswerKey {
+  homeworkId: string;
+  keys: Record<string, string | string[] | boolean>;
+}
+
+export interface HomeworkSubmissionFile {
+  name: string;
+  type: string;
+  base64Data?: string;
+  externalLink?: string;
+}
+
+export interface HomeworkSubmission {
+  id: string; // ${homeworkId}_${studentId}
+  homeworkId: string;
+  studentId: string;
+  classId: string;
+  status: 'draft' | 'submitted' | 'late' | 'marked' | 'resubmit_requested';
+  submittedAt?: string;
+  isLate?: boolean;
+  answers?: Record<string, any>;
+  files?: HomeworkSubmissionFile[];
+  externalLink?: string;
+  score?: number;
+  questionMarks?: Record<string, number>;
+  questionComments?: Record<string, string>;
+  teacherNote?: string;
+  markedAt?: string;
+  markedBy?: string;
+  history?: any[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TeacherNotificationItem {
+  id: string;
+  studentId: string;
+  studentName: string;
+  type: 'homework_submitted' | 'quiz_submitted' | 'exam_submitted' | 'activity_submitted';
+  title: string;
+  homeworkId?: string;
+  activityId?: string;
+  timestamp: string;
+  read: boolean;
+}
+
 export interface AppState {
   profile: UserProfile;
   teacherSecurity?: TeacherSecurity;
@@ -249,6 +441,12 @@ export interface AppState {
   accountRequests?: AccountRequest[];
   classJoins?: ClassJoinRecord[];
   classCancellations?: ClassCancellationItem[];
+  homework?: HomeworkItem[];
+  homeworkSubmissions?: HomeworkSubmission[];
+  activities?: ActivityItem[];
+  activityAttempts?: ActivityAttempt[];
+  studentBadges?: StudentBadgeItem[];
+  teacherNotifications?: TeacherNotificationItem[];
   telegramConfig?: {
     chatId: string;
     username?: string;
@@ -293,6 +491,7 @@ export type NavView =
   | 'attreport'
   | 'permits'
   | 'notices'
+  | 'activity'
   | 'subjects'
   | 'classwork'
   | 'results'

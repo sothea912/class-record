@@ -108,10 +108,17 @@ service cloud.firestore {
       allow create, update, delete: if isTeacher();
     }
 
-    // Attendance Sessions: Readable by signed-in users, writable by teacher
+    // Attendance Sessions: Readable by signed-in users, writable by teacher;
+    // Students can record their own auto-join attendance record
     match /attendance/{sessionId} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isTeacher();
+      allow create: if isTeacher()
+        || (isSignedIn()
+            && request.resource.data.studentId != null
+            && isStudent(request.resource.data.studentId)
+            && request.resource.data.source == 'auto-join');
+      allow update: if isTeacher();
+      allow delete: if isTeacher();
     }
 
     // Marks / Exam Scores: Readable by signed-in users, writable by teacher
@@ -173,6 +180,131 @@ service cloud.firestore {
       allow create: if isTeacher() || (isSignedIn() && request.resource.data.studentId != null && isStudent(request.resource.data.studentId));
       allow update: if isTeacher() || (isSignedIn() && resource.data.studentId != null && isStudent(resource.data.studentId));
       allow delete: if isTeacher();
+    }
+
+    // Homework Assignments: Created and managed by teachers.
+    // Students can read published homework.
+    match /homework/{homeworkId} {
+      allow read: if isTeacher()
+        || (isSignedIn() && resource.data.published == true);
+      allow create, update, delete: if isTeacher();
+
+      // Subcollection for attached homework documents (PDF, DOC <= 700KB)
+      match /files/{fileId} {
+        allow read: if isTeacher()
+          || (isSignedIn() && get(/databases/$(database)/documents/homework/$(homeworkId)).data.published == true);
+        allow create, update, delete: if isTeacher();
+      }
+    }
+
+    // Homework Files root collection support
+    match /homework_files/{fileId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isTeacher();
+    }
+
+    // Homework Answer Keys: Strictly TEACHER ONLY! Students have ZERO read/write access.
+    match /homework_keys/{homeworkId} {
+      allow read, write: if isTeacher();
+    }
+
+    // Homework Submissions: One per student per homework (ID: {homeworkId}_{studentId})
+    match /homework_submissions/{submissionId} {
+      allow read: if isTeacher()
+        || (isSignedIn() && resource.data.studentId != null && isStudent(resource.data.studentId));
+      allow create: if isTeacher() || (
+        isSignedIn()
+        && request.resource.data.studentId != null
+        && isStudent(request.resource.data.studentId)
+        && request.resource.data.id == request.resource.data.homeworkId + '_' + request.resource.data.studentId
+        && request.resource.data.status in ['draft', 'submitted', 'late']
+        && !request.resource.data.keys().hasAny(['score', 'questionMarks', 'questionComments', 'teacherNote', 'markedAt', 'markedBy'])
+      );
+      allow update: if isTeacher() || (
+        isSignedIn()
+        && resource.data.studentId != null
+        && isStudent(resource.data.studentId)
+        && resource.data.status != 'marked'
+        && request.resource.data.studentId == resource.data.studentId
+        && request.resource.data.homeworkId == resource.data.homeworkId
+        && request.resource.data.status in ['draft', 'submitted', 'late']
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['score', 'questionMarks', 'questionComments', 'teacherNote', 'markedAt', 'markedBy'])
+      );
+      allow delete: if isTeacher();
+    }
+
+    // Teacher Notifications (e.g. homework/quiz/exam submitted)
+    match /teacher_notifications/{notifId} {
+      allow read: if isTeacher();
+      allow create: if isTeacher()
+        || (isSignedIn() && request.resource.data.studentId != null && isStudent(request.resource.data.studentId));
+      allow update, delete: if isTeacher();
+    }
+
+    // Activities: Unified Quizzes, Exams, Custom Activities, and Homework
+    match /activities/{activityId} {
+      allow read: if isTeacher()
+        || (isSignedIn() && resource.data.published == true);
+      allow create, update, delete: if isTeacher();
+
+      // Questions subcollection: read by teacher OR signed-in student who has started an attempt
+      match /questions/{qDocId} {
+        allow read: if isTeacher()
+          || (isSignedIn() && exists(/databases/$(database)/documents/activity_attempts/$(activityId + '_' + (exists(/databases/$(database)/documents/users/$(request.auth.uid)) ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.studentId : request.auth.uid))));
+        allow create, update, delete: if isTeacher();
+      }
+
+      // Attached file docs subcollection
+      match /files/{fileId} {
+        allow read: if isTeacher()
+          || (isSignedIn() && get(/databases/$(database)/documents/activities/$(activityId)).data.published == true);
+        allow create, update, delete: if isTeacher();
+      }
+    }
+
+    // Activity Files root collection support
+    match /activity_files/{fileId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isTeacher();
+    }
+
+    // Activity Answer Keys: Strictly TEACHER ONLY! Students have ZERO read/write access.
+    match /activity_keys/{activityId} {
+      allow read, write: if isTeacher();
+    }
+
+    // Activity Attempts: Student Submissions for Quizzes, Exams, and Custom Activities
+    match /activity_attempts/{attemptId} {
+      allow read: if isTeacher()
+        || (isSignedIn() && resource.data.studentId != null && isStudent(resource.data.studentId));
+
+      allow create: if isTeacher() || (
+        isSignedIn()
+        && request.resource.data.studentId != null
+        && isStudent(request.resource.data.studentId)
+        && request.resource.data.status in ['not_started', 'in_progress', 'submitted', 'auto_submitted']
+        && !request.resource.data.keys().hasAny(['score', 'questionMarks', 'questionComments', 'teacherNote', 'markedAt', 'markedBy', 'grade', 'passed', 'sectionScores'])
+      );
+
+      allow update: if isTeacher() || (
+        isSignedIn()
+        && resource.data.studentId != null
+        && isStudent(resource.data.studentId)
+        && resource.data.status != 'marked'
+        && request.resource.data.studentId == resource.data.studentId
+        && request.resource.data.activityId == resource.data.activityId
+        && request.resource.data.status in ['in_progress', 'submitted', 'auto_submitted']
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['score', 'questionMarks', 'questionComments', 'teacherNote', 'markedAt', 'markedBy', 'grade', 'passed', 'sectionScores', 'startedAt', 'durationMinutes', 'extraMinutesGranted', 'resultsReleased', 'retakeAllowed'])
+      );
+
+      allow delete: if isTeacher();
+    }
+
+    // Student Badges & Achievements
+    match /student_badges/{badgeId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isTeacher()
+        || (isSignedIn() && request.resource.data.studentId != null && isStudent(request.resource.data.studentId));
     }
   }
 }

@@ -40,7 +40,9 @@ export const ALLOWED_TEACHER_EMAILS: string[] = [
 import {
   AnnouncementBanner,
   AppState,
+  AttendanceRecord,
   AttendanceSession,
+  AttendanceStatus,
   AuthUser,
   ClassCancellationItem,
   ClassItem,
@@ -58,8 +60,20 @@ import {
   ClassJoinRecord,
   DashboardLayoutConfig,
   TeacherSecurity,
+  HomeworkItem,
+  HomeworkFileDoc,
+  HomeworkAnswerKey,
+  HomeworkSubmission,
+  TeacherNotificationItem,
+  ActivityItem,
+  ActivityAttempt,
+  ActivityKind,
+  StudentBadgeItem,
+  HomeworkQuestion,
+  ClassworkType,
 } from '../types';
 import { scrubCamfirst } from './storage';
+import { attKey } from './helpers';
 
 export const COLLECTIONS = {
   CLASSES: 'classes',
@@ -79,6 +93,16 @@ export const COLLECTIONS = {
   ACCOUNT_REQUESTS: 'account_requests',
   CLASS_JOINS: 'class_joins',
   CLASS_NOTICES: 'classNotices',
+  HOMEWORK: 'homework',
+  HOMEWORK_FILES: 'homework_files',
+  HOMEWORK_SUBMISSIONS: 'homework_submissions',
+  HOMEWORK_KEYS: 'homework_keys',
+  ACTIVITIES: 'activities',
+  ACTIVITY_FILES: 'activity_files',
+  ACTIVITY_ATTEMPTS: 'activity_attempts',
+  ACTIVITY_KEYS: 'activity_keys',
+  STUDENT_BADGES: 'student_badges',
+  TEACHER_NOTIFICATIONS: 'teacher_notifications',
 } as const;
 
 /**
@@ -1500,6 +1524,59 @@ export async function syncDeleteSubject(subjectId: string): Promise<void> {
 }
 
 /**
+ * Record an auto-join attendance record in COLLECTIONS.ATTENDANCE
+ * with deterministic document ID: `${classId}_${date}_${studentId}`
+ */
+export async function syncSaveAutoJoinAttendance(
+  classId: string,
+  studentId: string,
+  date: string
+): Promise<{ status: 'saved' | 'already_exists'; timeStr: string }> {
+  const joinDocId = `${classId}_${date}_${studentId}`;
+  const docRef = doc(db, COLLECTIONS.ATTENDANCE, joinDocId);
+
+  // Check if this record already exists in Firestore
+  const existingSnap = await getDoc(docRef);
+  if (existingSnap.exists()) {
+    const existingData = existingSnap.data();
+    let timeStr = '';
+    if (existingData?.joinedAt?.toDate) {
+      timeStr = existingData.joinedAt.toDate().toLocaleTimeString('en-GB', {
+        timeZone: 'Asia/Phnom_Penh',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+    }
+    return { status: 'already_exists', timeStr };
+  }
+
+  // Create auto-join record with exact fields requested:
+  // studentId, classId, date, status = "P", source = "auto-join", joinedAt = serverTimestamp()
+  const payload = {
+    id: joinDocId,
+    studentId,
+    classId,
+    date,
+    status: 'P',
+    source: 'auto-join',
+    joinedAt: serverTimestamp(),
+  };
+
+  await setDoc(docRef, payload);
+
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString('en-GB', {
+    timeZone: 'Asia/Phnom_Penh',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+
+  return { status: 'saved', timeStr };
+}
+
+/**
  * Save Attendance session
  */
 export async function syncSaveAttendance(session: AttendanceSession): Promise<void> {
@@ -1912,15 +1989,60 @@ export function subscribeToFirestore(
   );
   unsubs.push(unsubSubjects);
 
-  // 4. Attendance
+  // 4. Attendance (Teacher sees all sessions & auto-joins, Student queries only their own auto-joins)
+  const qAttendance = user.role === 'teacher'
+    ? collection(db, COLLECTIONS.ATTENDANCE)
+    : query(collection(db, COLLECTIONS.ATTENDANCE), where('studentId', '==', user.studentId || auth.currentUser?.uid || ''));
+
   const unsubAttendance = onSnapshot(
-    collection(db, COLLECTIONS.ATTENDANCE),
+    qAttendance,
     snapshot => {
-      const attendance: AttendanceSession[] = [];
+      const sessionMap = new Map<string, AttendanceSession>();
+      const autoJoinList: any[] = [];
+
       snapshot.forEach(d => {
-        attendance.push(d.data() as AttendanceSession);
+        const data = d.data();
+        if (data.records) {
+          // Full teacher session document
+          sessionMap.set(data.id, data as AttendanceSession);
+        } else if (data.studentId && data.classId && data.date) {
+          // Individual auto-join document
+          autoJoinList.push(data);
+        }
       });
-      console.log(`[Firestore Live] Attendance sessions synced (${attendance.length} sessions)`);
+
+      // Merge auto-joins into sessions without overriding teacher manual marks
+      autoJoinList.forEach(aj => {
+        const sId = attKey(aj.classId, aj.date);
+        let session = sessionMap.get(sId);
+        if (!session) {
+          session = {
+            id: sId,
+            classId: aj.classId,
+            date: aj.date,
+            records: {},
+          };
+          sessionMap.set(sId, session);
+        }
+
+        const existingRecord = session.records[aj.studentId];
+        // Only set if not already manually marked by teacher
+        if (!existingRecord || existingRecord.source === 'auto-join') {
+          const joinedAtIso = aj.joinedAt?.toDate
+            ? aj.joinedAt.toDate().toISOString()
+            : (aj.joinedAt || new Date().toISOString());
+
+          session.records[aj.studentId] = {
+            status: (aj.status || 'P') as AttendanceStatus,
+            joinedAt: joinedAtIso,
+            source: 'auto-join',
+            reason: existingRecord?.reason || 'Auto (joined via app)',
+          };
+        }
+      });
+
+      const attendance: AttendanceSession[] = Array.from(sessionMap.values());
+      console.log(`[Firestore Live] Attendance synced (${attendance.length} sessions, ${autoJoinList.length} auto-joins)`);
       onUpdate(prev => ({ ...prev, attendance }));
       if (onConnected) onConnected();
     },
@@ -2125,6 +2247,128 @@ export function subscribeToFirestore(
     }
   );
   unsubs.push(unsubClassNotices);
+
+  // 15. Homework Assignments
+  const qHomework = user.role === 'teacher'
+    ? collection(db, COLLECTIONS.HOMEWORK)
+    : query(collection(db, COLLECTIONS.HOMEWORK), where('published', '==', true));
+  const unsubHomework = onSnapshot(
+    qHomework,
+    snapshot => {
+      const homework: HomeworkItem[] = [];
+      snapshot.forEach(d => {
+        homework.push(d.data() as HomeworkItem);
+      });
+      homework.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+      console.log(`[Firestore Live] Homework synced (${homework.length} items)`);
+      onUpdate(prev => ({ ...prev, homework }));
+    },
+    error => {
+      console.warn('[Firestore] Homework listener error:', error);
+    }
+  );
+  unsubs.push(unsubHomework);
+
+  // 16. Homework Submissions
+  const qSubmissions = user.role === 'teacher'
+    ? collection(db, COLLECTIONS.HOMEWORK_SUBMISSIONS)
+    : query(collection(db, COLLECTIONS.HOMEWORK_SUBMISSIONS), where('studentId', '==', user.studentId || auth.currentUser?.uid || ''));
+  const unsubSubmissions = onSnapshot(
+    qSubmissions,
+    snapshot => {
+      const homeworkSubmissions: HomeworkSubmission[] = [];
+      snapshot.forEach(d => {
+        homeworkSubmissions.push(d.data() as HomeworkSubmission);
+      });
+      console.log(`[Firestore Live] Homework Submissions synced (${homeworkSubmissions.length} items)`);
+      onUpdate(prev => ({ ...prev, homeworkSubmissions }));
+    },
+    error => {
+      console.warn('[Firestore] Submissions listener error:', error);
+    }
+  );
+  unsubs.push(unsubSubmissions);
+
+  // 17. Teacher Notifications (Teacher only)
+  if (user.role === 'teacher') {
+    const unsubTeacherNotifs = onSnapshot(
+      collection(db, COLLECTIONS.TEACHER_NOTIFICATIONS),
+      snapshot => {
+        const teacherNotifications: TeacherNotificationItem[] = [];
+        snapshot.forEach(d => {
+          teacherNotifications.push(d.data() as TeacherNotificationItem);
+        });
+        teacherNotifications.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+        console.log(`[Firestore Live] Teacher Notifications synced (${teacherNotifications.length} items)`);
+        onUpdate(prev => ({ ...prev, teacherNotifications }));
+      },
+      error => {
+        console.warn('[Firestore] Teacher Notifications listener error:', error);
+      }
+    );
+    unsubs.push(unsubTeacherNotifs);
+  }
+
+  // 18. Activities (Quizzes, Exams, Custom Activities, Unified Homework)
+  const qActivities = user.role === 'teacher'
+    ? collection(db, COLLECTIONS.ACTIVITIES)
+    : query(collection(db, COLLECTIONS.ACTIVITIES), where('published', '==', true));
+  const unsubActivities = onSnapshot(
+    qActivities,
+    snapshot => {
+      const activities: ActivityItem[] = [];
+      snapshot.forEach(d => {
+        activities.push(d.data() as ActivityItem);
+      });
+      activities.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+      console.log(`[Firestore Live] Activities synced (${activities.length} items)`);
+      onUpdate(prev => ({ ...prev, activities }));
+    },
+    error => {
+      console.warn('[Firestore] Activities listener error:', error);
+    }
+  );
+  unsubs.push(unsubActivities);
+
+  // 19. Activity Attempts (Submissions & In-progress Attempts)
+  const qAttempts = user.role === 'teacher'
+    ? collection(db, COLLECTIONS.ACTIVITY_ATTEMPTS)
+    : query(collection(db, COLLECTIONS.ACTIVITY_ATTEMPTS), where('studentId', '==', user.studentId || auth.currentUser?.uid || ''));
+  const unsubAttempts = onSnapshot(
+    qAttempts,
+    snapshot => {
+      const activityAttempts: ActivityAttempt[] = [];
+      snapshot.forEach(d => {
+        activityAttempts.push(d.data() as ActivityAttempt);
+      });
+      console.log(`[Firestore Live] Activity Attempts synced (${activityAttempts.length} items)`);
+      onUpdate(prev => ({ ...prev, activityAttempts }));
+    },
+    error => {
+      console.warn('[Firestore] Activity Attempts listener error:', error);
+    }
+  );
+  unsubs.push(unsubAttempts);
+
+  // 20. Student Badges & Achievements
+  const qBadges = user.role === 'teacher'
+    ? collection(db, COLLECTIONS.STUDENT_BADGES)
+    : query(collection(db, COLLECTIONS.STUDENT_BADGES), where('studentId', '==', user.studentId || auth.currentUser?.uid || ''));
+  const unsubBadges = onSnapshot(
+    qBadges,
+    snapshot => {
+      const studentBadges: StudentBadgeItem[] = [];
+      snapshot.forEach(d => {
+        studentBadges.push(d.data() as StudentBadgeItem);
+      });
+      console.log(`[Firestore Live] Student Badges synced (${studentBadges.length} items)`);
+      onUpdate(prev => ({ ...prev, studentBadges }));
+    },
+    error => {
+      console.warn('[Firestore] Student Badges listener error:', error);
+    }
+  );
+  unsubs.push(unsubBadges);
 
   return () => {
     unsubs.forEach(u => u());
@@ -2413,6 +2657,668 @@ export async function syncDeleteMultipleClassNotices(noticeIds: string[]): Promi
     console.log(`[Firestore] Bulk deleted ${noticeIds.length} class notices successfully.`);
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+
+/**
+ * Resizes an image file in the browser (max 1600px, JPEG format) and returns data URL
+ */
+export async function compressImageForHomework(file: File, maxDim = 1600): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Canvas rendering failed'));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        let quality = 0.85;
+        let dataUrl = canvas.toDataURL('image/jpeg', quality);
+        while (dataUrl.length > 500000 && quality > 0.4) {
+          quality -= 0.15;
+          dataUrl = canvas.toDataURL('image/jpeg', quality);
+        }
+        resolve(dataUrl);
+      };
+      img.onerror = reject;
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Reads a PDF / document file as base64 up to 700 KB
+ */
+export async function readDocAsBase64(file: File, maxBytes = 700 * 1024): Promise<{ base64: string; size: number }> {
+  if (file.size > maxBytes) {
+    throw new Error(`File size (${Math.round(file.size / 1024)} KB) exceeds the 700 KB limit for Firestore storage. Please paste an external cloud link instead.`);
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const res = e.target?.result as string;
+      resolve({ base64: res, size: file.size });
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Save homework item with optional answer key and subcollection file doc
+ */
+export async function syncSaveHomework(
+  homework: HomeworkItem,
+  answerKey?: HomeworkAnswerKey,
+  fileDoc?: HomeworkFileDoc
+): Promise<void> {
+  const path = `${COLLECTIONS.HOMEWORK}/${homework.id}`;
+  try {
+    await setDoc(doc(db, COLLECTIONS.HOMEWORK, homework.id), sanitizeForFirestore(homework));
+
+    // Save answer key if present (Teacher only collection)
+    if (answerKey && Object.keys(answerKey.keys).length > 0) {
+      await setDoc(doc(db, COLLECTIONS.HOMEWORK_KEYS, homework.id), sanitizeForFirestore(answerKey));
+    }
+
+    // Save file document in subcollection if present
+    if (fileDoc) {
+      await setDoc(doc(db, COLLECTIONS.HOMEWORK_FILES, fileDoc.id), sanitizeForFirestore(fileDoc));
+    }
+
+    console.log(`[Firestore] Saved homework assignment: ${homework.title} (${homework.id})`);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+/**
+ * Fetch attached file document for a homework
+ */
+export async function syncFetchHomeworkFile(fileId: string): Promise<HomeworkFileDoc | null> {
+  try {
+    const snap = await getDoc(doc(db, COLLECTIONS.HOMEWORK_FILES, fileId));
+    if (snap.exists()) {
+      return snap.data() as HomeworkFileDoc;
+    }
+    return null;
+  } catch (err) {
+    console.warn('[Firestore] Failed to fetch homework file:', err);
+    return null;
+  }
+}
+
+/**
+ * Fetch answer key for a homework (Teacher only)
+ */
+export async function syncFetchHomeworkAnswerKey(homeworkId: string): Promise<HomeworkAnswerKey | null> {
+  try {
+    const snap = await getDoc(doc(db, COLLECTIONS.HOMEWORK_KEYS, homeworkId));
+    if (snap.exists()) {
+      return snap.data() as HomeworkAnswerKey;
+    }
+    return null;
+  } catch (err) {
+    console.warn('[Firestore] Failed to fetch answer key:', err);
+    return null;
+  }
+}
+
+/**
+ * Delete a homework assignment along with its answer keys, files, and submissions
+ */
+export async function syncDeleteHomework(homeworkId: string): Promise<void> {
+  const path = `${COLLECTIONS.HOMEWORK}/${homeworkId}`;
+  try {
+    // 1. Delete homework document
+    await deleteDoc(doc(db, COLLECTIONS.HOMEWORK, homeworkId));
+
+    // 2. Delete answer key
+    await deleteDoc(doc(db, COLLECTIONS.HOMEWORK_KEYS, homeworkId)).catch(() => {});
+
+    // 3. Delete attached file doc
+    await deleteDoc(doc(db, COLLECTIONS.HOMEWORK_FILES, `hw_file_${homeworkId}`)).catch(() => {});
+
+    // 4. Delete all submissions for this homework
+    const subQ = query(collection(db, COLLECTIONS.HOMEWORK_SUBMISSIONS), where('homeworkId', '==', homeworkId));
+    const subSnaps = await getDocs(subQ);
+    const batch = writeBatch(db);
+    subSnaps.forEach(d => {
+      batch.delete(d.ref);
+    });
+    await batch.commit();
+
+    // 5. Delete linked ClassworkTask in COLLECTIONS.CLASSWORK
+    await deleteDoc(doc(db, COLLECTIONS.CLASSWORK, `cw_hw_${homeworkId}`)).catch(() => {});
+
+    console.log(`[Firestore] Deleted homework ${homeworkId} and all associated student submissions and classwork task.`);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+
+/**
+ * Save or submit student homework submission
+ */
+export async function syncSaveHomeworkSubmission(
+  submission: HomeworkSubmission,
+  studentName?: string,
+  homeworkTitle?: string
+): Promise<void> {
+  const path = `${COLLECTIONS.HOMEWORK_SUBMISSIONS}/${submission.id}`;
+  try {
+    await setDoc(doc(db, COLLECTIONS.HOMEWORK_SUBMISSIONS, submission.id), sanitizeForFirestore(submission));
+
+    // If student just submitted (or late), create a teacher notification
+    if ((submission.status === 'submitted' || submission.status === 'late') && studentName && homeworkTitle) {
+      const notifId = `notif_${Date.now()}_${submission.studentId.slice(0, 6)}`;
+      const notif: TeacherNotificationItem = {
+        id: notifId,
+        studentId: submission.studentId,
+        studentName,
+        type: 'homework_submitted',
+        title: homeworkTitle,
+        homeworkId: submission.homeworkId,
+        timestamp: new Date().toISOString(),
+        read: false,
+      };
+      await setDoc(doc(db, COLLECTIONS.TEACHER_NOTIFICATIONS, notifId), sanitizeForFirestore(notif)).catch(() => {});
+    }
+
+    console.log(`[Firestore] Saved submission ${submission.id} with status: ${submission.status}`);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+/**
+ * Delete a student submission
+ */
+export async function syncDeleteHomeworkSubmission(
+  submissionId: string,
+  homeworkId?: string,
+  studentId?: string
+): Promise<void> {
+  const path = `${COLLECTIONS.HOMEWORK_SUBMISSIONS}/${submissionId}`;
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.HOMEWORK_SUBMISSIONS, submissionId));
+    console.log(`[Firestore] Deleted submission ${submissionId}`);
+
+    // Clean up student score in linked ClassworkTask if exists
+    let hwId = homeworkId;
+    let sId = studentId;
+    if (!hwId || !sId) {
+      const parts = submissionId.split('_');
+      if (parts.length >= 2) {
+        sId = parts[parts.length - 1];
+        hwId = parts.slice(0, parts.length - 1).join('_');
+      }
+    }
+    if (hwId && sId) {
+      const taskId = `cw_hw_${hwId}`;
+      const taskDocRef = doc(db, COLLECTIONS.CLASSWORK, taskId);
+      const existingTaskSnap = await getDoc(taskDocRef).catch(() => null);
+      if (existingTaskSnap?.exists()) {
+        const taskData = existingTaskSnap.data();
+        const scores = { ...(taskData?.scores || {}) };
+        if (sId in scores) {
+          delete scores[sId];
+          await setDoc(taskDocRef, { scores }, { merge: true }).catch(() => {});
+          console.log(`[Firestore] Removed score for ${sId} from ClassworkTask ${taskId}`);
+        }
+      }
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+
+/**
+ * Submit teacher marks and optionally link into the Scoring tab (ClassworkTask)
+ */
+export async function syncSaveHomeworkMark(
+  submission: HomeworkSubmission,
+  homework: HomeworkItem,
+  linkToClasswork: boolean = true
+): Promise<void> {
+  const path = `${COLLECTIONS.HOMEWORK_SUBMISSIONS}/${submission.id}`;
+  try {
+    // 1. Update the submission document
+    await setDoc(doc(db, COLLECTIONS.HOMEWORK_SUBMISSIONS, submission.id), sanitizeForFirestore(submission));
+
+    const taskId = `cw_hw_${homework.id}`;
+    const taskDocRef = doc(db, COLLECTIONS.CLASSWORK, taskId);
+
+    // If redo was requested, remove score from linked classwork so it is not counted while pending revision
+    if (submission.status === 'resubmit_requested') {
+      const existingTaskSnap = await getDoc(taskDocRef).catch(() => null);
+      if (existingTaskSnap?.exists()) {
+        const taskData = existingTaskSnap.data();
+        const scores = { ...(taskData?.scores || {}) };
+        if (submission.studentId in scores) {
+          delete scores[submission.studentId];
+          await setDoc(taskDocRef, { scores }, { merge: true }).catch(() => {});
+          console.log(`[Firestore] Removed score for ${submission.studentId} due to redo request`);
+        }
+      }
+      return;
+    }
+
+    // 2. Link score to ClassworkTask in COLLECTIONS.CLASSWORK
+    if (linkToClasswork && submission.score !== undefined && submission.score !== null) {
+      const existingTaskSnap = await getDoc(taskDocRef).catch(() => null);
+
+      const dueMonth = homework.dueDateTime ? homework.dueDateTime.slice(0, 7) : new Date().toISOString().slice(0, 7);
+      const dueDate = homework.dueDateTime ? homework.dueDateTime.slice(0, 10) : new Date().toISOString().slice(0, 10);
+
+      let scoresMap: Record<string, number> = {};
+      if (existingTaskSnap?.exists()) {
+        scoresMap = { ...(existingTaskSnap.data()?.scores || {}) };
+      }
+      scoresMap[submission.studentId] = Number(submission.score);
+
+      const taskObj: ClassworkTask = {
+        id: taskId,
+        classId: submission.classId || homework.classIds[0] || '',
+        title: homework.title,
+        type: 'homework',
+        max: homework.maxScore || 100,
+        date: dueDate,
+        month: dueMonth,
+        scores: scoresMap,
+      };
+
+      await setDoc(taskDocRef, sanitizeForFirestore(taskObj));
+      console.log(`[Firestore] Linked homework score for ${submission.studentId} (${submission.score} pts) into ClassworkTask ${taskId}`);
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+/**
+ * Mark a teacher notification as read
+ */
+export async function syncMarkTeacherNotificationRead(notifId: string): Promise<void> {
+  const path = `${COLLECTIONS.TEACHER_NOTIFICATIONS}/${notifId}`;
+  try {
+    await setDoc(doc(db, COLLECTIONS.TEACHER_NOTIFICATIONS, notifId), { read: true }, { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+/**
+ * Save Activity (Quiz, Exam, Custom Activity) with questions and answer keys
+ */
+export async function syncSaveActivity(
+  activity: ActivityItem,
+  answerKey?: Record<string, any>,
+  questions?: HomeworkQuestion[]
+): Promise<void> {
+  const path = `${COLLECTIONS.ACTIVITIES}/${activity.id}`;
+  try {
+    // 1. Save activity document (with questions embedded and count tracked)
+    const actData = {
+      ...activity,
+      questionsCount: questions ? questions.length : (activity.questions?.length || 0),
+      questions: questions || activity.questions || [],
+    };
+    await setDoc(doc(db, COLLECTIONS.ACTIVITIES, activity.id), sanitizeForFirestore(actData));
+
+    // 2. Also save to subcollection for strict security rules separation
+    if (questions && questions.length > 0) {
+      await setDoc(
+        doc(db, COLLECTIONS.ACTIVITIES, activity.id, 'questions', 'questions_doc'),
+        sanitizeForFirestore({ questions })
+      ).catch(() => {});
+    }
+
+    // 3. Save answer key to teacher-only collection
+    if (answerKey && Object.keys(answerKey).length > 0) {
+      await setDoc(
+        doc(db, COLLECTIONS.ACTIVITY_KEYS, activity.id),
+        sanitizeForFirestore({ activityId: activity.id, keys: answerKey })
+      );
+    }
+
+    console.log(`[Firestore] Saved activity: ${activity.title} (${activity.kind} - ${activity.id})`);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+/**
+ * Fetch questions for an activity
+ */
+export async function syncFetchActivityQuestions(activityId: string): Promise<HomeworkQuestion[] | null> {
+  try {
+    // Check subcollection first
+    const subSnap = await getDoc(doc(db, COLLECTIONS.ACTIVITIES, activityId, 'questions', 'questions_doc'));
+    if (subSnap.exists() && subSnap.data()?.questions) {
+      return subSnap.data().questions as HomeworkQuestion[];
+    }
+    // Fallback to main document
+    const mainSnap = await getDoc(doc(db, COLLECTIONS.ACTIVITIES, activityId));
+    if (mainSnap.exists() && mainSnap.data()?.questions) {
+      return mainSnap.data().questions as HomeworkQuestion[];
+    }
+    return null;
+  } catch (err) {
+    console.warn('[Firestore] Failed to fetch activity questions:', err);
+    return null;
+  }
+}
+
+/**
+ * Fetch answer key for an activity (Teacher only)
+ */
+export async function syncFetchActivityAnswerKey(activityId: string): Promise<Record<string, any> | null> {
+  try {
+    const snap = await getDoc(doc(db, COLLECTIONS.ACTIVITY_KEYS, activityId));
+    if (snap.exists() && snap.data()?.keys) {
+      return snap.data().keys as Record<string, any>;
+    }
+    return null;
+  } catch (err) {
+    console.warn('[Firestore] Failed to fetch activity answer key:', err);
+    return null;
+  }
+}
+
+/**
+ * Save or submit an activity attempt (Quiz attempt, Exam, Custom Activity response)
+ */
+export async function syncSaveActivityAttempt(
+  attempt: ActivityAttempt,
+  studentName?: string,
+  activityTitle?: string
+): Promise<void> {
+  const path = `${COLLECTIONS.ACTIVITY_ATTEMPTS}/${attempt.id}`;
+  try {
+    const payload = sanitizeForFirestore({
+      ...attempt,
+      updatedAt: new Date().toISOString(),
+    });
+
+    await setDoc(doc(db, COLLECTIONS.ACTIVITY_ATTEMPTS, attempt.id), payload, { merge: true });
+
+    // If student just submitted or auto-submitted, notify teacher
+    if (
+      (attempt.status === 'submitted' || attempt.status === 'auto_submitted') &&
+      studentName &&
+      activityTitle
+    ) {
+      const notifType =
+        attempt.kind === 'quiz'
+          ? 'quiz_submitted'
+          : attempt.kind === 'exam'
+          ? 'exam_submitted'
+          : 'activity_submitted';
+      const notifId = `notif_${Date.now()}_${attempt.studentId.slice(0, 6)}`;
+      const notif: TeacherNotificationItem = {
+        id: notifId,
+        studentId: attempt.studentId,
+        studentName,
+        type: notifType,
+        title: activityTitle,
+        activityId: attempt.activityId,
+        timestamp: new Date().toISOString(),
+        read: false,
+      };
+      await setDoc(doc(db, COLLECTIONS.TEACHER_NOTIFICATIONS, notifId), sanitizeForFirestore(notif)).catch(() => {});
+    }
+
+    console.log(`[Firestore] Saved attempt ${attempt.id} (Status: ${attempt.status})`);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+/**
+ * Submit teacher marks for an activity attempt and automatically link into Scoring tab
+ */
+export async function syncSaveActivityMark(
+  attempt: ActivityAttempt,
+  activity: ActivityItem,
+  linkToClasswork: boolean = true
+): Promise<void> {
+  const path = `${COLLECTIONS.ACTIVITY_ATTEMPTS}/${attempt.id}`;
+  try {
+    // 1. Save attempt doc with evaluation
+    await setDoc(doc(db, COLLECTIONS.ACTIVITY_ATTEMPTS, attempt.id), sanitizeForFirestore(attempt), { merge: true });
+
+    // Task deterministic ID based on kind
+    const prefix =
+      activity.kind === 'quiz'
+        ? 'cw_qz_'
+        : activity.kind === 'exam'
+        ? 'cw_ex_'
+        : activity.kind === 'custom'
+        ? 'cw_act_'
+        : 'cw_hw_';
+    const taskId = `${prefix}${activity.id}`;
+    const taskDocRef = doc(db, COLLECTIONS.CLASSWORK, taskId);
+
+    // If redo / retake requested, remove existing score from ClassworkTask so it is not counted while pending revision
+    if (attempt.status === 'resubmit_requested') {
+      const existingTaskSnap = await getDoc(taskDocRef).catch(() => null);
+      if (existingTaskSnap?.exists()) {
+        const taskData = existingTaskSnap.data();
+        const scores = { ...(taskData?.scores || {}) };
+        if (attempt.studentId in scores) {
+          delete scores[attempt.studentId];
+          await setDoc(taskDocRef, { scores }, { merge: true }).catch(() => {});
+          console.log(`[Firestore] Removed score for ${attempt.studentId} due to retake/redo request`);
+        }
+      }
+      return;
+    }
+
+    // 2. Link score into ClassworkTask in COLLECTIONS.CLASSWORK
+    if (linkToClasswork && attempt.score !== undefined && attempt.score !== null) {
+      const existingTaskSnap = await getDoc(taskDocRef).catch(() => null);
+
+      const targetMonth = activity.month || (activity.dueDateTime ? activity.dueDateTime.slice(0, 7) : new Date().toISOString().slice(0, 7));
+      const targetDate = activity.dueDateTime ? activity.dueDateTime.slice(0, 10) : new Date().toISOString().slice(0, 10);
+
+      let scoresMap: Record<string, number> = {};
+      if (existingTaskSnap?.exists()) {
+        scoresMap = { ...(existingTaskSnap.data()?.scores || {}) };
+      }
+      scoresMap[attempt.studentId] = Number(attempt.score);
+
+      const categoryType: ClassworkType =
+        activity.kind === 'quiz'
+          ? 'quiz'
+          : activity.kind === 'exam'
+          ? 'exam'
+          : activity.scoringColumn || (activity.kind === 'homework' ? 'homework' : 'participation');
+
+      const taskObj: ClassworkTask = {
+        id: taskId,
+        classId: attempt.classId || activity.classIds[0] || '',
+        title: activity.title,
+        type: categoryType,
+        max: activity.maxScore || 100,
+        date: targetDate,
+        month: targetMonth,
+        scores: scoresMap,
+      };
+
+      await setDoc(taskDocRef, sanitizeForFirestore(taskObj));
+      console.log(`[Firestore] Linked ${categoryType} score for ${attempt.studentId} (${attempt.score} pts) into ClassworkTask ${taskId}`);
+    }
+
+    // 3. Check for automatic badge awards if badges enabled
+    if (activity.badgesEnabled !== false && attempt.score !== undefined && activity.maxScore > 0) {
+      const pct = (attempt.score / activity.maxScore) * 100;
+      if (pct >= 100) {
+        await syncAwardStudentBadge({
+          id: `badge_perf_${attempt.studentId}_${activity.id}`,
+          studentId: attempt.studentId,
+          badgeType: 'perfect_score',
+          title: 'Perfect Score',
+          description: `Scored 100% on ${activity.title}`,
+          icon: 'Award',
+          awardedAt: new Date().toISOString(),
+          activityId: activity.id,
+        });
+      }
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+/**
+ * Delete an activity along with its attempts, answer keys, files, and linked classwork task
+ */
+export async function syncDeleteActivity(activityId: string, kind?: ActivityKind): Promise<void> {
+  const path = `${COLLECTIONS.ACTIVITIES}/${activityId}`;
+  try {
+    // 1. Delete activity doc
+    await deleteDoc(doc(db, COLLECTIONS.ACTIVITIES, activityId));
+
+    // 2. Delete questions subcollection
+    await deleteDoc(doc(db, COLLECTIONS.ACTIVITIES, activityId, 'questions', 'questions_doc')).catch(() => {});
+
+    // 3. Delete answer keys
+    await deleteDoc(doc(db, COLLECTIONS.ACTIVITY_KEYS, activityId)).catch(() => {});
+
+    // 4. Delete all attempts
+    const attQ = query(collection(db, COLLECTIONS.ACTIVITY_ATTEMPTS), where('activityId', '==', activityId));
+    const attSnaps = await getDocs(attQ);
+    const batch = writeBatch(db);
+    attSnaps.forEach(d => {
+      batch.delete(d.ref);
+    });
+    await batch.commit();
+
+    // 5. Delete linked Classwork tasks
+    const prefixes = ['cw_qz_', 'cw_ex_', 'cw_act_', 'cw_hw_'];
+    for (const p of prefixes) {
+      await deleteDoc(doc(db, COLLECTIONS.CLASSWORK, `${p}${activityId}`)).catch(() => {});
+    }
+
+    console.log(`[Firestore] Deleted activity ${activityId} and all attempts and classwork tasks.`);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+
+/**
+ * Delete a single activity attempt
+ */
+export async function syncDeleteActivityAttempt(
+  attemptId: string,
+  activityId?: string,
+  studentId?: string
+): Promise<void> {
+  const path = `${COLLECTIONS.ACTIVITY_ATTEMPTS}/${attemptId}`;
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.ACTIVITY_ATTEMPTS, attemptId));
+    console.log(`[Firestore] Deleted attempt ${attemptId}`);
+
+    let actId = activityId;
+    let sId = studentId;
+    if (!actId || !sId) {
+      const parts = attemptId.split('_');
+      if (parts.length >= 2) {
+        sId = parts[parts.length - 1];
+        actId = parts.slice(0, parts.length - 1).join('_');
+      }
+    }
+    if (actId && sId) {
+      const prefixes = ['cw_qz_', 'cw_ex_', 'cw_act_', 'cw_hw_'];
+      for (const p of prefixes) {
+        const taskId = `${p}${actId}`;
+        const taskDocRef = doc(db, COLLECTIONS.CLASSWORK, taskId);
+        const existingTaskSnap = await getDoc(taskDocRef).catch(() => null);
+        if (existingTaskSnap?.exists()) {
+          const taskData = existingTaskSnap.data();
+          const scores = { ...(taskData?.scores || {}) };
+          if (sId in scores) {
+            delete scores[sId];
+            await setDoc(taskDocRef, { scores }, { merge: true }).catch(() => {});
+            console.log(`[Firestore] Removed score for ${sId} from ClassworkTask ${taskId}`);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+
+/**
+ * Award a student badge
+ */
+export async function syncAwardStudentBadge(badge: StudentBadgeItem): Promise<void> {
+  const path = `${COLLECTIONS.STUDENT_BADGES}/${badge.id}`;
+  try {
+    await setDoc(doc(db, COLLECTIONS.STUDENT_BADGES, badge.id), sanitizeForFirestore(badge));
+    console.log(`[Firestore] Awarded badge "${badge.title}" to student ${badge.studentId}`);
+  } catch (err) {
+    console.warn('[Firestore] Failed to award badge:', err);
+  }
+}
+
+/**
+ * Grant extra minutes to a student's ongoing attempt
+ */
+export async function syncUpdateStudentExamTime(attemptId: string, extraMinutes: number): Promise<void> {
+  const path = `${COLLECTIONS.ACTIVITY_ATTEMPTS}/${attemptId}`;
+  try {
+    const docRef = doc(db, COLLECTIONS.ACTIVITY_ATTEMPTS, attemptId);
+    const snap = await getDoc(docRef);
+    const currentExtra = snap.exists() ? (snap.data()?.extraMinutesGranted || 0) : 0;
+    await setDoc(docRef, { extraMinutesGranted: currentExtra + extraMinutes }, { merge: true });
+    console.log(`[Firestore] Granted +${extraMinutes} minutes to attempt ${attemptId}`);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+/**
+ * Release activity results for students
+ */
+export async function syncReleaseActivityResults(activityId: string, studentId?: string): Promise<void> {
+  try {
+    if (studentId) {
+      const attemptId = `${activityId}_${studentId}`;
+      await setDoc(doc(db, COLLECTIONS.ACTIVITY_ATTEMPTS, attemptId), { resultsReleased: true }, { merge: true });
+    } else {
+      const qAttempts = query(collection(db, COLLECTIONS.ACTIVITY_ATTEMPTS), where('activityId', '==', activityId));
+      const snaps = await getDocs(qAttempts);
+      const batch = writeBatch(db);
+      snaps.forEach(d => {
+        batch.update(d.ref, { resultsReleased: true });
+      });
+      await batch.commit();
+    }
+    console.log(`[Firestore] Released results for activity ${activityId}`);
+  } catch (err) {
+    console.warn('[Firestore] Failed to release results:', err);
   }
 }
 

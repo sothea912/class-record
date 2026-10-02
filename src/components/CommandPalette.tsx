@@ -139,6 +139,13 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   const scoringActions = useMemo(() => {
     const items = [
       {
+        id: 'activity',
+        title: 'Class Activity Center',
+        desc: 'Create homework assignments, interactive question forms & grade student work',
+        icon: FileText,
+        view: 'activity' as NavView,
+      },
+      {
         id: 'subjects',
         title: 'Subjects & Exam Scoring',
         desc: 'Enter monthly test marks for Listening, Speaking, Reading, Writing',

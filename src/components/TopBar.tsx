@@ -32,6 +32,7 @@ const VIEW_TITLES: Record<NavView, { title: string; subtitle: string }> = {
   attreport: { title: 'Attendance Analytics & Reports', subtitle: 'Monthly aggregates, attendance rates & printable sheets' },
   permits: { title: 'Permission Requests Parser', subtitle: 'Auto-detect telegram excuses & bulk-file into registers' },
   notices: { title: 'Class Notices & Announcements Manager', subtitle: 'Hides and deletes class cancellations or makeup reschedules for all students' },
+  activity: { title: 'Class Activity Center', subtitle: 'Create homework assignments, interactive question forms & grade student work' },
   subjects: { title: 'Subjects & Exam Scoring', subtitle: 'Grade exams, set component weights & track monthly tests' },
   classwork: { title: 'Classwork & Homework Tasks', subtitle: 'Record homework, project & achievement activities' },
   results: { title: 'Academic Ranking & Merit', subtitle: 'Comprehensive score calculation, pass/fail status & honors' },

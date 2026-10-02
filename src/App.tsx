@@ -78,6 +78,7 @@ import { StudentPortalView } from './views/StudentPortalView';
 import { StudentProfileView } from './views/StudentProfileView';
 import { ImportView } from './views/ImportView';
 import { AdventurerModeView } from './views/AdventurerModeView';
+import { TeacherActivityView } from './views/TeacherActivityView';
 import { SettingsModal } from './components/SettingsModal';
 
 export default function App() {
@@ -981,6 +982,7 @@ export default function App() {
         classCount={state.classes.length}
         pendingPermissionCount={(state.studentPermissions || []).filter(p => p.status === 'Pending').length}
         noticeCount={state.classCancellations?.length || 0}
+        unreadHomeworkCount={(state.teacherNotifications || []).filter(n => n.type === 'homework_submitted' && !n.read).length}
       />
 
       {/* Main View Area */}
@@ -1096,6 +1098,15 @@ export default function App() {
             {currentView === 'notices' && (
               <NoticesView
                 state={state}
+                onShowToast={showToast}
+              />
+            )}
+
+            {currentView === 'activity' && (
+              <TeacherActivityView
+                state={state}
+                selectedClassId={selectedClassId}
+                onSelectClassId={setSelectedClassId}
                 onShowToast={showToast}
               />
             )}

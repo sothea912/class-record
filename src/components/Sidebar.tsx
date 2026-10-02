@@ -23,6 +23,7 @@ import {
   ChevronRight,
   ChevronDown,
   Pin,
+  FileText,
 } from 'lucide-react';
 import { NavView, UserProfile } from '../types';
 
@@ -40,6 +41,7 @@ interface SidebarProps {
   classCount: number;
   pendingPermissionCount: number;
   noticeCount: number;
+  unreadHomeworkCount?: number;
 }
 
 interface NavItem {
@@ -80,6 +82,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   classCount,
   pendingPermissionCount,
   noticeCount,
+  unreadHomeworkCount = 0,
 }) => {
   // Whole sidebar collapse (Icon rail mode)
   const [isWholeCollapsed, setIsWholeCollapsed] = React.useState<boolean>(() => {
@@ -175,6 +178,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     {
       label: 'Marks & Ranking',
       items: [
+        { id: 'activity' as NavView, label: 'Class Activity', icon: FileText, badge: unreadHomeworkCount },
         { id: 'subjects' as NavView, label: 'Subjects & Exams', icon: FilePenLine },
         { id: 'classwork' as NavView, label: 'Classwork', icon: Sparkles },
         { id: 'results' as NavView, label: 'Class Ranking', icon: Trophy },
@@ -194,6 +198,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     permits: 'Attendance',
     notices: 'Attendance',
     adventure: 'Attendance',
+    activity: 'Marks & Ranking',
     subjects: 'Marks & Ranking',
     classwork: 'Marks & Ranking',
     results: 'Marks & Ranking',

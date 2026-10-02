@@ -237,9 +237,71 @@
         "status": { "type": "string", "maxLength": 20 }
       },
       "required": ["id", "classId", "studentId", "date", "classStart"]
+    },
+    "ActivityItem": {
+      "title": "ActivityItem",
+      "description": "Unified Quiz, Exam, Custom Activity, or Homework assignment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "kind": { "type": "string", "maxLength": 30 },
+        "title": { "type": "string", "maxLength": 200 },
+        "instructions": { "type": "string", "maxLength": 5000 },
+        "classIds": { "type": "array" },
+        "month": { "type": "string", "maxLength": 20 },
+        "maxScore": { "type": "number" },
+        "published": { "type": "boolean" },
+        "opensAt": { "type": "string", "maxLength": 60 },
+        "closesAt": { "type": "string", "maxLength": 60 },
+        "durationMinutes": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": ["id", "kind", "title", "maxScore"]
+    },
+    "ActivityAttempt": {
+      "title": "ActivityAttempt",
+      "description": "Student quiz/exam attempt or activity submission",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "activityId": { "type": "string", "maxLength": 128 },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "classId": { "type": "string", "maxLength": 128 },
+        "kind": { "type": "string", "maxLength": 30 },
+        "attemptNumber": { "type": "number" },
+        "status": { "type": "string", "maxLength": 30 },
+        "score": { "type": "number" },
+        "startedAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": ["id", "activityId", "studentId", "status"]
+    },
+    "StudentBadgeItem": {
+      "title": "StudentBadgeItem",
+      "description": "Student achievement badge awarded for performance",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "badgeType": { "type": "string", "maxLength": 50 },
+        "title": { "type": "string", "maxLength": 100 },
+        "awardedAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": ["id", "studentId", "badgeType", "title"]
     }
   },
   "firestore": {
+    "/activities/{activityId}": {
+      "schema": "ActivityItem",
+      "description": "Unified Quizzes, Exams, and Custom Activities"
+    },
+    "/activity_attempts/{attemptId}": {
+      "schema": "ActivityAttempt",
+      "description": "Student attempts and submissions for activities"
+    },
+    "/student_badges/{badgeId}": {
+      "schema": "StudentBadgeItem",
+      "description": "Student gamification badges and achievement awards"
+    },
     "/class_joins/{joinId}": {
       "schema": "ClassJoinRecord",
       "description": "Google Meet self check-in join timestamps"
@@ -299,6 +361,26 @@
     "/custom_records/{recordId}": {
       "schema": "CustomRecordItem",
       "description": "Custom imported records and general information store"
+    },
+    "/homework/{homeworkId}": {
+      "schema": "HomeworkItem",
+      "description": "Class Activity homework tasks with instructions, files and question forms"
+    },
+    "/homework_files/{fileId}": {
+      "schema": "HomeworkFileDoc",
+      "description": "Base64 document attachments for homework up to 700KB"
+    },
+    "/homework_keys/{homeworkId}": {
+      "schema": "HomeworkAnswerKey",
+      "description": "Private teacher answer keys for auto-marking forms"
+    },
+    "/homework_submissions/{submissionId}": {
+      "schema": "HomeworkSubmission",
+      "description": "Student homework submissions and teacher evaluations"
+    },
+    "/teacher_notifications/{notifId}": {
+      "schema": "TeacherNotificationItem",
+      "description": "Real-time alerts for teacher dashboard including homework submissions"
     }
   }
 }

@@ -12,8 +12,10 @@ import {
   Sparkles,
   Search,
   CalendarX,
+  Video,
 } from 'lucide-react';
-import { AppState, AttendanceRecord, AttendanceSession, AttendanceStatus, ClassCancellationItem } from '../types';
+import { AppState, AttendanceRecord, AttendanceSession, AttendanceStatus, ClassCancellationItem, TeacherSecurity } from '../types';
+import { syncSaveSettings } from '../utils/firestoreSync';
 import {
   attKey,
   attOf,
@@ -26,6 +28,82 @@ import {
   uid,
 } from '../utils/helpers';
 import { Modal } from '../components/Modal';
+
+export function getAutoJoinLateness(
+  joinedAtVal: any,
+  classStartTimeStr: string,
+  gracePeriodMinutes: number = 10
+): {
+  joinTimeStr: string;
+  isOnTime: boolean;
+  minutesLate: number;
+  label: string;
+} {
+  let dateObj: Date | null = null;
+  if (joinedAtVal?.toDate) {
+    dateObj = joinedAtVal.toDate();
+  } else if (typeof joinedAtVal === 'string' && joinedAtVal.trim()) {
+    const d = new Date(joinedAtVal);
+    if (!isNaN(d.getTime())) {
+      dateObj = d;
+    }
+  }
+
+  let joinTimeStr = '';
+  let joinMins = 0;
+  if (dateObj) {
+    joinTimeStr = dateObj.toLocaleTimeString('en-GB', {
+      timeZone: 'Asia/Phnom_Penh',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    const parts = joinTimeStr.split(':').map(Number);
+    joinMins = (parts[0] || 0) * 60 + (parts[1] || 0);
+  } else if (typeof joinedAtVal === 'string' && joinedAtVal.includes(':')) {
+    joinTimeStr = joinedAtVal;
+    const [h, m] = joinedAtVal.split(':').map(Number);
+    joinMins = (h || 0) * 60 + (m || 0);
+  }
+
+  const [startH, startM] = (classStartTimeStr || '20:00').split(':').map(Number);
+  const startMins = (startH || 0) * 60 + (startM || 0);
+
+  const diff = Math.max(0, joinMins - startMins);
+  const isOnTime = diff <= gracePeriodMinutes;
+
+  return {
+    joinTimeStr: joinTimeStr || classStartTimeStr,
+    isOnTime,
+    minutesLate: diff,
+    label: isOnTime ? 'On time' : `Late (${diff} min)`,
+  };
+}
+
+function formatAutoJoinTime(val: any): string {
+  if (!val) return '';
+  if (typeof val === 'string' && val.includes('T')) {
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleTimeString('en-GB', {
+        timeZone: 'Asia/Phnom_Penh',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+    }
+  }
+  if (typeof val === 'string') return val;
+  if (val?.toDate) {
+    return val.toDate().toLocaleTimeString('en-GB', {
+      timeZone: 'Asia/Phnom_Penh',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+  }
+  return '';
+}
 
 interface AttendanceViewProps {
   state: AppState;
@@ -85,6 +163,27 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
   const classStartTime = currentClass?.startTime || currentClass?.timeFrom || '20:00';
   const classDuration = currentClass?.duration || 60;
 
+  const lateGracePeriod = state.teacherSecurity?.lateGracePeriod ?? 10;
+  const [localGracePeriod, setLocalGracePeriod] = useState<number>(lateGracePeriod);
+
+  React.useEffect(() => {
+    setLocalGracePeriod(state.teacherSecurity?.lateGracePeriod ?? 10);
+  }, [state.teacherSecurity?.lateGracePeriod]);
+
+  const handleUpdateGracePeriod = async (mins: number) => {
+    const val = Math.max(0, Math.min(120, mins));
+    setLocalGracePeriod(val);
+    const updatedSec: TeacherSecurity = {
+      ...(state.teacherSecurity || { isConfigured: true, isSetupCompleted: true }),
+      lateGracePeriod: val,
+    };
+    try {
+      await syncSaveSettings(state.profile || {}, updatedSec);
+    } catch (err) {
+      console.warn('Could not save grace period:', err);
+    }
+  };
+
   // Working draft records for the selected class & date
   const existingSession = currentClass ? attOf(currentClass.id, date, state) : null;
   const [records, setRecords] = useState<Record<string, AttendanceRecord>>(
@@ -117,7 +216,21 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
       }
     });
 
-    setRecords(initialRecords);
+    setRecords(prev => {
+      if (Object.keys(prev).length === 0) return initialRecords;
+      const updated = { ...prev };
+      let hasChanges = false;
+      Object.entries(initialRecords).forEach(([sId, r]) => {
+        // Merge auto-join or unassigned records in real-time
+        if (!updated[sId]?.status || (updated[sId]?.source === 'auto-join' && r.source === 'auto-join')) {
+          if (JSON.stringify(updated[sId]) !== JSON.stringify(r)) {
+            updated[sId] = r;
+            hasChanges = true;
+          }
+        }
+      });
+      return hasChanges ? updated : prev;
+    });
   }, [currentClass?.id, date, state.attendance, state.classJoins]);
 
   if (!currentClass) {
@@ -480,9 +593,20 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                             </div>
                           )}
                           <div>
-                            <span className="font-semibold text-slate-900 dark:text-white block">
-                              {s.name}
-                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-semibold text-slate-900 dark:text-white block">
+                                {s.name}
+                              </span>
+                              {rec.source === 'auto-join' && (
+                                <span
+                                  className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/50 px-1.5 py-0.5 rounded shadow-xs"
+                                  title={rec.joinedAt ? `Auto-joined via app at ${formatAutoJoinTime(rec.joinedAt)}` : 'Auto-joined via app'}
+                                >
+                                  <Video className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                  Auto-joined {rec.joinedAt ? formatAutoJoinTime(rec.joinedAt) : ''}
+                                </span>
+                              )}
+                            </div>
                             <span className="text-[11px] font-mono text-slate-400">{s.studentNo || '—'}</span>
                           </div>
                         </div>
@@ -635,7 +759,18 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                     </div>
                   )}
                   <div>
-                    <h4 className="font-bold text-slate-900 dark:text-white text-sm">{s.name}</h4>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <h4 className="font-bold text-slate-900 dark:text-white text-sm">{s.name}</h4>
+                      {rec.source === 'auto-join' && (
+                        <span
+                          className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/50 px-1.5 py-0.5 rounded shadow-xs"
+                          title={rec.joinedAt ? `Auto-joined via app at ${formatAutoJoinTime(rec.joinedAt)}` : 'Auto-joined via app'}
+                        >
+                          <Video className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                          Auto-joined {rec.joinedAt ? formatAutoJoinTime(rec.joinedAt) : ''}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-[11px] font-mono text-slate-400">{s.studentNo || 'No ID'}</p>
                   </div>
                 </div>

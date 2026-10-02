@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { Modal } from './Modal';
 
-export type QuickNavActionId = 'leave' | 'join' | 'results' | 'report' | 'library' | 'classes' | 'attendance' | 'profile';
+export type QuickNavActionId = 'leave' | 'join' | 'activity' | 'results' | 'report' | 'library' | 'classes' | 'attendance' | 'profile';
 
 interface QuickNavOption {
   id: QuickNavActionId;
@@ -29,6 +29,7 @@ interface QuickNavOption {
 const ALL_QUICK_OPTIONS: QuickNavOption[] = [
   { id: 'leave', label: 'Request Leave / Permission', icon: Mail, color: 'text-amber-500 bg-amber-500/10' },
   { id: 'join', label: 'Join Class (Google Meet)', icon: Video, color: 'text-rose-500 bg-rose-500/10' },
+  { id: 'activity', label: 'Class Activity & Homework', icon: Sparkles, tabTarget: 'activity', color: 'text-purple-500 bg-purple-500/10' },
   { id: 'results', label: 'View Scores & Results', icon: Trophy, tabTarget: 'results', color: 'text-emerald-500 bg-emerald-500/10' },
   { id: 'report', label: 'Download Report Card', icon: Download, color: 'text-purple-500 bg-purple-500/10' },
   { id: 'library', label: 'Resource Library', icon: BookOpen, tabTarget: 'library', color: 'text-blue-500 bg-blue-500/10' },

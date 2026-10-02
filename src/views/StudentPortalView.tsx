@@ -49,6 +49,7 @@ import {
   KeyRound,
   Lock,
   Loader2,
+  Copy,
 } from 'lucide-react';
 import {
   AppState,
@@ -67,7 +68,7 @@ import {
   calculateAttendanceScore,
   createDefaultProgress,
 } from '../utils/gamification';
-import { syncSaveStudentProgress, syncSaveClassJoin, syncSaveDashboardLayout, subscribeToAppBranding } from '../utils/firestoreSync';
+import { syncSaveStudentProgress, syncSaveClassJoin, syncSaveAutoJoinAttendance, syncSaveDashboardLayout, subscribeToAppBranding } from '../utils/firestoreSync';
 import {
   ATT_EXCUSED_PENALTY,
   ATT_UNEXCUSED_PENALTY,
@@ -79,6 +80,7 @@ import {
   round1,
   thisMonth,
   todayISO,
+  todayCambodiaISO,
   uid,
 } from '../utils/helpers';
 import { downloadWordDoc } from '../utils/wordExport';
@@ -90,6 +92,7 @@ import { AttendanceJoinChart } from '../components/AttendanceJoinChart';
 import { LeaveRequestFormModal } from '../components/LeaveRequestFormModal';
 import { LeaveRequestResultsModal } from '../components/LeaveRequestResultsModal';
 import { ResourceLibraryView } from './ResourceLibraryView';
+import { StudentActivityView } from './StudentActivityView';
 
 interface StudentPortalViewProps {
   state: AppState;
@@ -105,7 +108,7 @@ interface StudentPortalViewProps {
   firestoreStatus?: 'connected' | 'connecting' | 'offline';
 }
 
-type PortalTab = 'overview' | 'attendance' | 'library' | 'results' | 'classes' | 'profile';
+type PortalTab = 'overview' | 'activity' | 'attendance' | 'library' | 'results' | 'classes' | 'profile';
 
 export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
   state,
@@ -273,6 +276,60 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
     return { disabled: false, text: 'Join Class', reason: 'now' };
   };
 
+  const handleCopyMeetLink = async () => {
+    const link = currentClassObj?.meetLink;
+    if (!link) return;
+
+    const config = getJoinButtonConfig();
+    if (config.reason === 'future') {
+      onShowToast("Sorry, your class hasn't started yet.", 'info');
+      return;
+    }
+    if (config.disabled) {
+      return;
+    }
+
+    let copied = false;
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      try {
+        await navigator.clipboard.writeText(link);
+        copied = true;
+      } catch {
+        copied = false;
+      }
+    }
+
+    if (!copied) {
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = link;
+        textArea.style.position = 'fixed';
+        textArea.style.top = '0';
+        textArea.style.left = '0';
+        textArea.style.width = '2em';
+        textArea.style.height = '2em';
+        textArea.style.padding = '0';
+        textArea.style.border = 'none';
+        textArea.style.outline = 'none';
+        textArea.style.boxShadow = 'none';
+        textArea.style.background = 'transparent';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        copied = document.execCommand('copy');
+        document.body.removeChild(textArea);
+      } catch {
+        copied = false;
+      }
+    }
+
+    if (copied) {
+      onShowToast('Meeting link copied', 'success');
+    } else {
+      onShowToast('Could not copy, please use Join Class instead', 'error');
+    }
+  };
+
   const handleJoinClass = async () => {
     if (!currentClassObj) {
       onShowToast('No active class selected for check-in', 'error');
@@ -284,7 +341,7 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
       return;
     }
 
-    const today = todayISO();
+    const today = todayCambodiaISO();
     const classStart = currentClassObj.timeFrom || '08:00';
     const classEnd = currentClassObj.timeTo || '09:30';
 
@@ -305,35 +362,63 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
       }
     }
 
-    // Check if already checked in today
+    // 1. Open the meeting link immediately — the student must never be blocked from joining
+    const meetLink = currentClassObj.meetLink;
+    try {
+      window.open(meetLink, '_blank');
+    } catch (e) {
+      console.warn('Could not open meet link via window.open:', e);
+    }
+
+    // 2. Check if already checked in today in local state to prevent redundant writes
+    const existingSession = state.attendance.find(a => a.classId === currentClassObj.id && a.date === today);
+    const existingRecord = existingSession?.records ? existingSession.records[studentId] : null;
+
+    if (existingRecord) {
+      const joinTimeStr = existingRecord.joinedAt
+        ? new Date(existingRecord.joinedAt).toLocaleTimeString('en-GB', {
+            timeZone: 'Asia/Phnom_Penh',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+          })
+        : 'class start';
+      onShowToast(`Already checked in today at ${joinTimeStr}`, 'info');
+      return;
+    }
+
+    // Also record legacy class join if not present
     const existingJoin = (state.classJoins || []).find(
       j => j.classId === currentClassObj.id && j.studentId === studentId && j.date === today
     );
-
     if (!existingJoin) {
       const [startH, startM] = classStart.split(':').map(Number);
       const startDate = new Date();
       startDate.setHours(startH || 8, startM || 0, 0, 0);
       const diffMs = now.getTime() - startDate.getTime();
       const minsLate = Math.max(0, Math.floor(diffMs / (1000 * 60)));
-
       let status: 'green' | 'yellow' | 'red' = 'green';
       if (minsLate >= (state.teacherSecurity?.redFrom ?? 10)) status = 'red';
       else if (minsLate >= (state.teacherSecurity?.yellowFrom ?? 1)) status = 'yellow';
-
-      try {
-        await syncSaveClassJoin(currentClassObj.id, studentId, today, classStart, minsLate, status);
-        onShowToast(`Checked in to ${currentClassObj.name} at ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}!`, 'success');
-      } catch (err: any) {
-        console.warn('Class join sync warning:', err);
-      }
-    } else {
-      const joinTimeStr = existingJoin.joinedAt ? new Date(existingJoin.joinedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'class start';
-      onShowToast(`Already checked in today at ${joinTimeStr}`, 'info');
+      syncSaveClassJoin(currentClassObj.id, studentId, today, classStart, minsLate, status).catch(() => {});
     }
 
-    const meetLink = currentClassObj.meetLink;
-    window.open(meetLink, '_blank');
+    // 3. Save auto-join attendance record into COLLECTIONS.ATTENDANCE
+    try {
+      const res = await syncSaveAutoJoinAttendance(currentClassObj.id, studentId, today);
+      if (res.status === 'already_exists') {
+        onShowToast(`Already checked in today at ${res.timeStr || 'class start'}`, 'info');
+      } else {
+        onShowToast(`Attendance recorded at ${res.timeStr}`, 'success');
+      }
+    } catch (err: any) {
+      console.error('[Auto-Join Attendance Error]:', err);
+      const realReason = err?.code || err?.message || String(err);
+      onShowToast(
+        `Your class link opened, but your attendance was not recorded. Please tell your teacher (${realReason})`,
+        'error'
+      );
+    }
   };
 
   const [selectedClassId, setSelectedClassId] = useState<string>(() => {
@@ -1455,6 +1540,7 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
               <div className="flex flex-col gap-1.5">
                 {[
                   { id: 'overview' as const, label: 'Overview', icon: Activity },
+                  { id: 'activity' as const, label: 'Class Activity', icon: Sparkles },
                   { id: 'attendance' as const, label: 'Attendance', icon: CalendarCheck },
                   { id: 'library' as const, label: 'Resource Library', icon: BookOpen },
                   { id: 'results' as const, label: 'Scores & Results', icon: Trophy },
@@ -1582,6 +1668,17 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                 <div className="space-y-1">
                   <button
                     type="button"
+                    onClick={() => { setActiveTab('activity'); setIsQuickNavOpen(false); }}
+                    className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left font-bold text-slate-800 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/10 active:scale-[0.98] transition-all cursor-pointer"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-purple-500/15 text-purple-500 flex items-center justify-center shrink-0">
+                      <Sparkles className="w-4 h-4" />
+                    </div>
+                    <span className="truncate">Class Activity</span>
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => { setIsLeaveFormOpen(true); setIsQuickNavOpen(false); }}
                     className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left font-bold text-slate-800 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/10 active:scale-[0.98] transition-all cursor-pointer"
                   >
@@ -1628,12 +1725,25 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                 onClick={() => setActiveTab('overview')}
                 className={`flex flex-col items-center justify-center p-2 rounded-full transition-all shrink-0 active:scale-95 ${
                   activeTab === 'overview'
-                    ? 'text-[#4BA95F] bg-[#4BA95F]/15 px-3'
+                    ? 'text-[#4BA95F] bg-[#4BA95F]/15 px-2.5 sm:px-3'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
                 <Activity className="w-4.5 h-4.5" />
                 <span className="text-[9px] font-black mt-0.5 tracking-tight">Home</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('activity')}
+                className={`flex flex-col items-center justify-center p-2 rounded-full transition-all shrink-0 active:scale-95 ${
+                  activeTab === 'activity'
+                    ? 'text-[#4BA95F] bg-[#4BA95F]/15 px-2.5 sm:px-3'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Sparkles className="w-4.5 h-4.5" />
+                <span className="text-[9px] font-black mt-0.5 tracking-tight">Activity</span>
               </button>
 
               <button
@@ -1755,33 +1865,54 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                   </div>
                 </div>
 
-                {/* Join Class button: On phone, full width on its own row below; on desktop, right-aligned and vertically centered */}
+                {/* Join Class button and Copy Link button: On phone, on their own row below; on desktop, right-aligned and vertically centered */}
                 {currentClassObj && (
-                  <div className="w-full sm:w-auto shrink-0 flex items-center sm:self-center">
+                  <div className="w-full sm:w-auto shrink-0 flex items-center sm:self-center gap-2">
                     {(() => {
                       const config = getJoinButtonConfig();
                       return (
-                        <button
-                          type="button"
-                          disabled={config.disabled}
-                          onClick={() => {
-                            if (config.reason === 'future') {
-                              onShowToast("Sorry, your class hasn't started yet.", 'info');
-                              return;
-                            }
-                            handleJoinClass();
-                          }}
-                          className={`w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all active:scale-95 shadow-xs ${
-                            config.disabled
-                              ? 'bg-slate-700/40 text-slate-400 border border-slate-600/30 cursor-not-allowed opacity-50'
-                              : config.reason === 'future'
-                              ? 'bg-blue-800/60 hover:bg-blue-700 text-blue-100 dark:bg-purple-700/60 dark:hover:bg-purple-700 dark:text-purple-200 border border-blue-400/30 dark:border-purple-500/30 cursor-pointer'
-                              : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer shadow-md shadow-emerald-500/10'
-                          }`}
-                        >
-                          <Video className="w-4 h-4 shrink-0" />
-                          <span>{config.text}</span>
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            disabled={config.disabled}
+                            onClick={() => {
+                              if (config.reason === 'future') {
+                                onShowToast("Sorry, your class hasn't started yet.", 'info');
+                                return;
+                              }
+                              handleJoinClass();
+                            }}
+                            className={`w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all active:scale-95 shadow-xs ${
+                              config.disabled
+                                ? 'bg-slate-700/40 text-slate-400 border border-slate-600/30 cursor-not-allowed opacity-50'
+                                : config.reason === 'future'
+                                ? 'bg-blue-800/60 hover:bg-blue-700 text-blue-100 dark:bg-purple-700/60 dark:hover:bg-purple-700 dark:text-purple-200 border border-blue-400/30 dark:border-purple-500/30 cursor-pointer'
+                                : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer shadow-md shadow-emerald-500/10'
+                            }`}
+                          >
+                            <Video className="w-4 h-4 shrink-0" />
+                            <span>{config.text}</span>
+                          </button>
+
+                          {currentClassObj.meetLink && (
+                            <button
+                              type="button"
+                              disabled={config.disabled}
+                              onClick={handleCopyMeetLink}
+                              title="Copy meeting link"
+                              aria-label="Copy meeting link"
+                              className={`w-10 h-10 shrink-0 inline-flex items-center justify-center rounded-xl transition-all active:scale-95 shadow-xs ${
+                                config.disabled
+                                  ? 'bg-slate-700/40 text-slate-400 border border-slate-600/30 cursor-not-allowed opacity-50'
+                                  : config.reason === 'future'
+                                  ? 'bg-blue-800/60 hover:bg-blue-700 text-blue-100 dark:bg-purple-700/60 dark:hover:bg-purple-700 dark:text-purple-200 border border-blue-400/30 dark:border-purple-500/30 cursor-pointer'
+                                  : 'bg-white/15 hover:bg-white/25 border border-white/25 text-white cursor-pointer'
+                              }`}
+                            >
+                              <Copy className="w-4 h-4" />
+                            </button>
+                          )}
+                        </>
                       );
                     })()}
                   </div>
@@ -1810,6 +1941,19 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                 </div>
               </div>
             </div>
+          )}
+
+          {/* =================================================================== */}
+          {/* CLASS ACTIVITY TAB (Homework, Quizzes, Achievement) */}
+          {/* =================================================================== */}
+          {activeTab === 'activity' && (
+            <StudentActivityView
+              state={state}
+              studentId={studentId}
+              student={student}
+              activeClassId={activeClassId}
+              onShowToast={onShowToast}
+            />
           )}
 
           {/* =================================================================== */}
@@ -2530,6 +2674,9 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
         classes={state.classes}
         studentId={studentId}
         dismissedNoticeIds={dismissedNoticeIds}
+        homework={state.homework || []}
+        submissions={(state.homeworkSubmissions || []).filter(s => s.studentId === studentId)}
+        onNavigateTab={setActiveTab}
         onDismissCancellation={handleDismissNoticeLocal}
         initialTab={notificationCenterTab}
       />

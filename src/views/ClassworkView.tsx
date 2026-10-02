@@ -130,6 +130,8 @@ export const ClassworkView: React.FC<ClassworkViewProps> = ({
     project: { label: 'Project', color: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
     achievement: { label: 'Achievement', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
     participation: { label: 'Participation', color: 'bg-amber-50 text-amber-700 border-amber-200' },
+    quiz: { label: 'Quiz', color: 'bg-purple-50 text-purple-700 border-purple-200' },
+    exam: { label: 'Exam', color: 'bg-rose-50 text-rose-700 border-rose-200' },
   };
 
   return (
@@ -366,6 +368,8 @@ export const ClassworkView: React.FC<ClassworkViewProps> = ({
                 className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
               >
                 <option value="homework">Homework</option>
+                <option value="quiz">Monthly Quiz</option>
+                <option value="exam">Final / Exam</option>
                 <option value="project">Project</option>
                 <option value="achievement">Achievement Task</option>
                 <option value="participation">Participation</option>

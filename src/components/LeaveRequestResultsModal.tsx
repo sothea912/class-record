@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Bell, X, Plus, CheckCircle2, XCircle, Clock, AlertCircle, CalendarX } from 'lucide-react';
-import { StudentPermissionRequest, ClassCancellationItem, ClassItem } from '../types';
+import { Bell, X, Plus, CheckCircle2, XCircle, Clock, AlertCircle, CalendarX, FileText } from 'lucide-react';
+import { StudentPermissionRequest, ClassCancellationItem, ClassItem, HomeworkItem, HomeworkSubmission } from '../types';
 
 interface LeaveRequestResultsModalProps {
   isOpen: boolean;
@@ -12,12 +12,15 @@ interface LeaveRequestResultsModalProps {
   classes: ClassItem[];
   studentId: string;
   dismissedNoticeIds: string[];
+  homework?: HomeworkItem[];
+  submissions?: HomeworkSubmission[];
+  onNavigateTab?: (tab: any) => void;
   onDismissCancellation?: (cancellationId: string) => void;
   triggerButtonRef?: React.RefObject<HTMLButtonElement | null>;
   initialTab?: FilterTab;
 }
 
-type FilterTab = 'All' | 'Leave Requests' | 'Class Updates';
+type FilterTab = 'All' | 'Homework' | 'Leave Requests' | 'Class Updates';
 
 export const LeaveRequestResultsModal: React.FC<LeaveRequestResultsModalProps> = ({
   isOpen,
@@ -31,6 +34,9 @@ export const LeaveRequestResultsModal: React.FC<LeaveRequestResultsModalProps> =
   onDismissCancellation,
   triggerButtonRef,
   initialTab,
+  homework = [],
+  submissions = [],
+  onNavigateTab,
 }) => {
   const [activeFilter, setActiveFilter] = useState<FilterTab>('All');
   const modalRef = useRef<HTMLDivElement>(null);
@@ -48,7 +54,9 @@ export const LeaveRequestResultsModal: React.FC<LeaveRequestResultsModalProps> =
     return cls;
   });
 
-  const countAll = requests.length + studentCancellations.length;
+  const hwItems = (homework || []).filter(h => h.published);
+  const countHw = hwItems.length;
+  const countAll = requests.length + studentCancellations.length + countHw;
   const countLeaves = requests.length;
   const countClasses = studentCancellations.length;
 
@@ -107,11 +115,12 @@ export const LeaveRequestResultsModal: React.FC<LeaveRequestResultsModalProps> =
 
             {/* Filter Tabs */}
             <div className="px-3 sm:px-6 py-2.5 bg-slate-50/80 dark:bg-[#181818]/80 border-b border-slate-100 dark:border-slate-800/80 shrink-0">
-              <div className="grid grid-cols-3 gap-1 bg-slate-200/60 dark:bg-slate-900 p-1 rounded-xl">
+              <div className="grid grid-cols-4 gap-1 bg-slate-200/60 dark:bg-slate-900 p-1 rounded-xl">
                 {[
                   { id: 'All', label: 'All', count: countAll },
-                  { id: 'Leave Requests', label: 'Leave Requests', count: countLeaves },
-                  { id: 'Class Updates', label: 'Class Updates', count: countClasses },
+                  { id: 'Homework', label: 'Homework', count: countHw },
+                  { id: 'Leave Requests', label: 'Leave', count: countLeaves },
+                  { id: 'Class Updates', label: 'Updates', count: countClasses },
                 ].map(tab => {
                   const isActive = activeFilter === tab.id;
                   return (
@@ -139,6 +148,62 @@ export const LeaveRequestResultsModal: React.FC<LeaveRequestResultsModalProps> =
 
             {/* List Body */}
             <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-3">
+              {(activeFilter === 'All' || activeFilter === 'Homework') && hwItems.length > 0 && (
+                <div className="space-y-3">
+                  {hwItems.map(hw => {
+                    const sub = (submissions || []).find(s => s.homeworkId === hw.id);
+                    const isMarked = sub?.status === 'marked';
+                    return (
+                      <div
+                        key={hw.id}
+                        className="p-4 rounded-2xl bg-purple-50/70 dark:bg-purple-950/25 border border-purple-200/80 dark:border-purple-900/40 space-y-2.5 text-xs sm:text-sm"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="w-7 h-7 rounded-lg bg-purple-500/15 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
+                              <FileText className="w-4 h-4" />
+                            </span>
+                            <div>
+                              <span className="font-bold text-slate-900 dark:text-white block">
+                                {isMarked ? `Graded: ${hw.title}` : `New Homework: ${hw.title}`}
+                              </span>
+                              <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                                Due: {new Date(hw.dueDateTime).toLocaleDateString('en-GB')}
+                              </span>
+                            </div>
+                          </div>
+                          {isMarked ? (
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300">
+                              Score: {sub.score}/{hw.maxScore}
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300 border border-purple-200">
+                              Assignment
+                            </span>
+                          )}
+                        </div>
+                        {isMarked && sub.teacherNote && (
+                          <p className="text-xs text-slate-600 dark:text-slate-400 italic bg-white/60 dark:bg-[#181818]/60 p-2 rounded-xl border border-purple-100 dark:border-purple-900/30">
+                            &ldquo;{sub.teacherNote}&rdquo;
+                          </p>
+                        )}
+                        <div className="pt-1 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onClose();
+                              onNavigateTab?.('activity');
+                            }}
+                            className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
+                          >
+                            Open Activity
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               {(activeFilter === 'All' || activeFilter === 'Class Updates') && studentCancellations.length > 0 && (
                 <div className="space-y-3">
                   {studentCancellations.map(c => {

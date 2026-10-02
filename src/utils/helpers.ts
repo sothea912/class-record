@@ -7,6 +7,25 @@ export const esc = (s: unknown): string =>
 
 export const todayISO = (): string => new Date().toISOString().slice(0, 10);
 
+/**
+ * Returns today's date formatted as YYYY-MM-DD in Cambodia local time (Asia/Phnom_Penh, UTC+7)
+ */
+export const todayCambodiaISO = (): string => {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Phnom_Penh',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    return formatter.format(new Date());
+  } catch {
+    const now = new Date();
+    const utc7 = new Date(now.getTime() + (7 * 60 + now.getTimezoneOffset()) * 60000);
+    return utc7.toISOString().slice(0, 10);
+  }
+};
+
 export const thisMonth = (): string => new Date().toISOString().slice(0, 7);
 
 export const round1 = (n: number): number => Math.round(n * 10) / 10;

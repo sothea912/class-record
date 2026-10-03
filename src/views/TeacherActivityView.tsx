@@ -50,6 +50,7 @@ import {
   HomeworkQuestion,
   HomeworkQuestionType,
   HomeworkSubmission,
+  HomeworkSubmissionFile,
   HomeworkAnswerKey,
   HomeworkFileDoc,
   ActivityItem,
@@ -60,6 +61,7 @@ import {
   ClassItem,
   StudentItem,
   ClassworkType,
+  SubmissionFileDoc,
 } from '../types';
 import {
   syncSaveHomework,
@@ -68,6 +70,8 @@ import {
   syncDeleteHomeworkSubmission,
   syncFetchHomeworkAnswerKey,
   syncFetchHomeworkFile,
+  syncFetchSubmissionFiles,
+  syncFetchSubmissionSingleFile,
   compressImageForHomework,
   readDocAsBase64,
   syncMarkTeacherNotificationRead,
@@ -153,6 +157,8 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
   const [itemPublished, setItemPublished] = useState(true);
   const [itemThumbnail, setItemThumbnail] = useState<string | undefined>();
   const [itemDifficulty, setItemDifficulty] = useState<number>(3); // 1 to 5, default 3 (Medium)
+  const [itemAllowStudentFileUpload, setItemAllowStudentFileUpload] = useState<boolean>(true);
+  const [itemRequireFileUpload, setItemRequireFileUpload] = useState<boolean>(false);
   const [isProcessingThumbnail, setIsProcessingThumbnail] = useState(false);
 
   // Upload attachments
@@ -176,6 +182,9 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
 
   // Submissions grading modal
   const [selectedSubmissionStudent, setSelectedSubmissionStudent] = useState<StudentItem | null>(null);
+  const [activeSubmissionFiles, setActiveSubmissionFiles] = useState<SubmissionFileDoc[]>([]);
+  const [isLoadingSubFiles, setIsLoadingSubFiles] = useState(false);
+  const [viewingImagePreviewUrl, setViewingImagePreviewUrl] = useState<string | null>(null);
   const [activeAnswerKey, setActiveAnswerKey] = useState<Record<string, any> | null>(null);
   const [awardedMarks, setAwardedMarks] = useState<Record<string, number>>({});
   const [questionComments, setQuestionComments] = useState<Record<string, string>>({});
@@ -262,6 +271,8 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
     setItemPublished(true);
     setItemThumbnail(undefined);
     setItemDifficulty(3);
+    setItemAllowStudentFileUpload(true);
+    setItemRequireFileUpload(false);
     setAttachmentData(undefined);
     setAttachmentName(undefined);
     setAttachmentType(undefined);
@@ -332,6 +343,8 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
     setItemPublished(item.published !== false);
     setItemThumbnail(item.thumbnail);
     setItemDifficulty(item.difficulty || 3);
+    setItemAllowStudentFileUpload((item as any).allowStudentFileUpload !== false);
+    setItemRequireFileUpload((item as any).requireFileUpload || false);
     setAttachmentData(item.attachmentData);
     setAttachmentName(item.attachmentName);
     setAttachmentType(item.attachmentType);
@@ -383,6 +396,8 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
     setItemPublished(false); // Default draft for cloned
     setItemThumbnail(source.thumbnail);
     setItemDifficulty(source.difficulty || 3);
+    setItemAllowStudentFileUpload((source as any).allowStudentFileUpload !== false);
+    setItemRequireFileUpload((source as any).requireFileUpload || false);
     setAttachmentData(source.attachmentData);
     setAttachmentName(source.attachmentName);
     setAttachmentType(source.attachmentType);
@@ -604,6 +619,8 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
           published: itemPublished,
           thumbnail: itemThumbnail,
           difficulty: itemDifficulty,
+          allowStudentFileUpload: itemAllowStudentFileUpload,
+          requireFileUpload: itemRequireFileUpload,
           attachmentName: attachmentName,
           attachmentType: attachmentType,
           attachmentData: attachmentData,
@@ -1716,7 +1733,13 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
                               setQuestionComments(sub?.questionComments || att?.questionComments || {});
                               setOverallTeacherNote(sub?.teacherNote || att?.teacherNote || '');
                               setOverallScoreOverride(score !== null ? score : '');
-                              if (currentGradingHw) {
+                              setActiveSubmissionFiles([]);
+                              if (currentGradingHw && sub) {
+                                setIsLoadingSubFiles(true);
+                                syncFetchSubmissionFiles(sub.id)
+                                  .then(files => setActiveSubmissionFiles(files))
+                                  .catch(err => console.warn('Failed to load sub files:', err))
+                                  .finally(() => setIsLoadingSubFiles(false));
                                 const key = await syncFetchHomeworkAnswerKey(currentGradingHw.id);
                                 setActiveAnswerKey(key?.keys || null);
                               } else if (currentGradingAct) {
@@ -1846,6 +1869,37 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* Homework Specific: Student File Upload Options */}
+              {createKind === 'homework' && (
+                <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-purple-50/50 dark:bg-purple-950/20 rounded-2xl border border-purple-100 dark:border-purple-900/40">
+                  <label className="flex items-center justify-between gap-3 p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-800 cursor-pointer shadow-xs">
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">Allow Student File Upload</span>
+                      <span className="text-[10px] text-slate-400">Students can attach PDF, Word or Image files</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={itemAllowStudentFileUpload}
+                      onChange={e => setItemAllowStudentFileUpload(e.target.checked)}
+                      className="rounded text-purple-600 w-4 h-4 cursor-pointer"
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between gap-3 p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-800 cursor-pointer shadow-xs">
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">Require File Upload</span>
+                      <span className="text-[10px] text-slate-400">At least one file is mandatory before submitting</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={itemRequireFileUpload}
+                      onChange={e => setItemRequireFileUpload(e.target.checked)}
+                      className="rounded text-purple-600 w-4 h-4 cursor-pointer"
+                    />
+                  </label>
+                </div>
+              )}
 
               {/* Activity Thumbnail & Difficulty Level Configuration */}
               <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
@@ -2146,6 +2200,390 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
                 Save & Publish
               </button>
             </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* =================================================================== */}
+      {/* MODAL: STUDENT SUBMISSION GRADING & REVIEW */}
+      {/* =================================================================== */}
+      {selectedSubmissionStudent && (
+        <Modal
+          isOpen={!!selectedSubmissionStudent}
+          onClose={() => setSelectedSubmissionStudent(null)}
+          title={`Grade Submission: ${selectedSubmissionStudent.name}`}
+          size="2xl"
+        >
+          {(() => {
+            const sub = currentGradingHw
+              ? submissionsList.find(s => s.homeworkId === currentGradingHw.id && s.studentId === selectedSubmissionStudent.id)
+              : null;
+            const att = currentGradingAct
+              ? attemptsList.find(a => a.activityId === currentGradingAct.id && a.studentId === selectedSubmissionStudent.id)
+              : null;
+            const status = sub?.status || att?.status || 'not_started';
+            const sumMarks = Object.values(awardedMarks).reduce((a, b) => a + Number(b), 0);
+            const calculatedTotal = overallScoreOverride !== '' ? Number(overallScoreOverride) : sumMarks;
+            const maxPoints = currentGradingHw?.maxScore || currentGradingAct?.maxScore || 100;
+            const displayQuestions = (currentGradingHw?.questions || currentGradingAct?.questions || []);
+
+            // Helper to download or open a student file
+            const handleOpenStudentFile = async (fMeta: any) => {
+              // First check if activeSubmissionFiles has the base64Data
+              let fileDoc: SubmissionFileDoc | null | undefined = activeSubmissionFiles.find(f => f.id === fMeta.fileId);
+              if (!fileDoc && sub) {
+                fileDoc = await syncFetchSubmissionSingleFile(sub.id, fMeta.fileId || fMeta.name);
+              }
+              const base64 = fileDoc?.base64Data || fMeta.base64Data;
+              if (base64) {
+                if (fMeta.type?.startsWith('image/') || base64.startsWith('data:image/')) {
+                  setViewingImagePreviewUrl(base64);
+                } else {
+                  const link = document.createElement('a');
+                  link.href = base64;
+                  link.download = fMeta.name || 'submission_document';
+                  link.click();
+                }
+              } else {
+                onShowToast('File content not available or still loading.', 'error');
+              }
+            };
+
+            return (
+              <div className="space-y-6 max-h-[80vh] overflow-y-auto pr-1">
+                {/* Header overview */}
+                <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-sm text-slate-900 dark:text-white">{selectedSubmissionStudent.name}</span>
+                      <span className="text-xs font-mono text-slate-400">({selectedSubmissionStudent.studentNo || selectedSubmissionStudent.id})</span>
+                    </div>
+                    <span className="text-[11px] text-slate-500">
+                      Submitted: {sub?.submittedAt || att?.submittedAt ? new Date(sub?.submittedAt || att?.submittedAt || '').toLocaleString() : 'N/A'}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                      status === 'marked'
+                        ? 'bg-emerald-500/15 text-emerald-600'
+                        : status === 'submitted'
+                        ? 'bg-blue-500/15 text-blue-600'
+                        : 'bg-amber-500/15 text-amber-600'
+                    }`}>
+                      {status === 'marked' ? 'Marked' : status === 'submitted' ? 'Submitted' : status}
+                    </span>
+                    <span className="text-xs font-black text-purple-600">
+                      Score: {calculatedTotal} / {maxPoints} pts
+                    </span>
+                  </div>
+                </div>
+
+                {/* Form Questions & Answers Review */}
+                {displayQuestions.length > 0 && (
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-400">Questions & Answers</h4>
+                    {displayQuestions.map((q, idx) => {
+                      const studentAns = sub?.answers?.[q.id] !== undefined ? sub.answers[q.id] : att?.answers?.[q.id];
+                      const correctKey = activeAnswerKey?.[q.id];
+                      const currentMark = awardedMarks[q.id] !== undefined ? awardedMarks[q.id] : 0;
+                      const currentComment = questionComments[q.id] || '';
+
+                      return (
+                        <div key={q.id} className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 space-y-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-start gap-2">
+                              <span className="w-6 h-6 rounded-lg bg-purple-600 text-white text-xs font-bold flex items-center justify-center shrink-0">
+                                {idx + 1}
+                              </span>
+                              <div>
+                                <h5 className="text-xs font-bold text-slate-900 dark:text-white">{q.title}</h5>
+                                {q.description && <p className="text-[11px] text-slate-500">{q.description}</p>}
+                              </div>
+                            </div>
+                            <span className="text-xs font-bold text-slate-400 font-mono">{q.points} pts</span>
+                          </div>
+
+                          {/* Student Answer */}
+                          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-xs space-y-1">
+                            <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Student's Answer:</span>
+                            {q.type === 'photo' && studentAns ? (
+                              <img
+                                src={studentAns}
+                                alt="Student answer"
+                                onClick={() => setViewingImagePreviewUrl(studentAns)}
+                                className="max-h-48 rounded-lg border cursor-pointer hover:opacity-90"
+                              />
+                            ) : Array.isArray(studentAns) ? (
+                              <p className="font-semibold text-slate-800 dark:text-slate-200">{studentAns.join(', ') || '(Blank)'}</p>
+                            ) : (
+                              <p className="font-semibold text-slate-800 dark:text-slate-200">{studentAns !== undefined && studentAns !== '' ? String(studentAns) : '(Blank)'}</p>
+                            )}
+                          </div>
+
+                          {/* Answer Key reference if available */}
+                          {correctKey !== undefined && (
+                            <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-xl p-2.5 text-xs text-emerald-900 dark:text-emerald-300">
+                              <strong>Answer Key:</strong> {Array.isArray(correctKey) ? correctKey.join(', ') : String(correctKey)}
+                            </div>
+                          )}
+
+                          {/* Scoring & Comment Controls */}
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Award Points</label>
+                              <input
+                                type="number"
+                                min={0}
+                                max={q.points}
+                                value={currentMark}
+                                onChange={e => setAwardedMarks(prev => ({ ...prev, [q.id]: Math.min(q.points, Math.max(0, Number(e.target.value))) }))}
+                                className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold font-mono"
+                              />
+                            </div>
+                            <div className="sm:col-span-2">
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Question Feedback (Optional)</label>
+                              <input
+                                type="text"
+                                value={currentComment}
+                                onChange={e => setQuestionComments(prev => ({ ...prev, [q.id]: e.target.value }))}
+                                placeholder="Add note for student..."
+                                className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Attached Files & Submission Links */}
+                <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 space-y-3">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Paperclip className="w-3.5 h-3.5 text-purple-600" />
+                    <span>Student Submitted Files & Links</span>
+                  </h4>
+
+                  {isLoadingSubFiles && (
+                    <div className="text-xs text-slate-400 py-2">Loading attached files from database...</div>
+                  )}
+
+                  {/* Files List */}
+                  {((sub?.files && sub.files.length > 0) || activeSubmissionFiles.length > 0) ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {(sub?.files || activeSubmissionFiles.map(f => ({ fileId: f.id, name: f.fileName, type: f.fileType, size: f.size }))).map((fMetaRaw, fIdx) => {
+                        const fMeta = fMetaRaw as HomeworkSubmissionFile;
+                        const isImg = fMeta.type?.startsWith('image/');
+                        const subDoc = activeSubmissionFiles.find(d => d.id === fMeta.fileId);
+                        const imgSrc = subDoc?.base64Data || fMeta.previewUrl || (fMeta as any).base64Data;
+
+                        return (
+                          <div key={fIdx} className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl flex items-center justify-between gap-3 shadow-xs">
+                            <div className="flex items-center gap-2.5 overflow-hidden">
+                              {isImg && imgSrc ? (
+                                <img
+                                  src={imgSrc}
+                                  alt="Preview"
+                                  onClick={() => setViewingImagePreviewUrl(imgSrc)}
+                                  className="w-10 h-10 object-cover rounded-lg border cursor-pointer hover:scale-105 transition-transform shrink-0"
+                                />
+                              ) : (
+                                <div className="w-10 h-10 rounded-lg bg-purple-50 dark:bg-purple-950/40 text-purple-600 flex items-center justify-center shrink-0">
+                                  <FileText className="w-5 h-5" />
+                                </div>
+                              )}
+                              <div className="truncate">
+                                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block truncate" title={fMeta.name}>
+                                  {fMeta.name}
+                                </span>
+                                {fMeta.size ? (
+                                  <span className="text-[10px] text-slate-400 font-mono">
+                                    {(fMeta.size / 1024).toFixed(1)} KB
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleOpenStudentFile(fMeta)}
+                              className="px-2.5 py-1.5 bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 text-purple-700 dark:text-purple-300 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer shrink-0"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>{isImg ? 'View' : 'Open'}</span>
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    !isLoadingSubFiles && (
+                      <p className="text-xs text-slate-400 italic">No files attached to this submission.</p>
+                    )
+                  )}
+
+                  {/* External Links */}
+                  {(sub?.externalLink || sub?.links || att?.externalLink) && (
+                    <div className="pt-2 border-t border-slate-200 dark:border-slate-700 space-y-1">
+                      <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400">External Shared Links:</span>
+                      <div className="flex flex-wrap gap-2">
+                        {sub?.externalLink && (
+                          <a
+                            href={sub.externalLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border text-xs font-semibold text-purple-600 hover:underline"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span className="truncate max-w-xs">{sub.externalLink}</span>
+                          </a>
+                        )}
+                        {(sub?.links || []).map((lnk, lIdx) => (
+                          <a
+                            key={lIdx}
+                            href={lnk}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border text-xs font-semibold text-purple-600 hover:underline"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span className="truncate max-w-xs">{lnk}</span>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Overall Score & Feedback */}
+                <div className="bg-purple-50/50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/40 rounded-2xl p-4 space-y-3">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-purple-900 dark:text-purple-300">Overall Assessment</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                        Final Score (Out of {maxPoints})
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={maxPoints}
+                        value={calculatedTotal}
+                        onChange={e => setOverallScoreOverride(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-black font-mono text-purple-600"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Overall Teacher Feedback</label>
+                      <textarea
+                        rows={2}
+                        value={overallTeacherNote}
+                        onChange={e => setOverallTeacherNote(e.target.value)}
+                        placeholder="Great work! Please review question 2..."
+                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bottom Actions */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
+                  <button
+                    type="button"
+                    onClick={() => setRedoModalOpen(true)}
+                    className="px-4 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 border border-amber-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Request Redo / Revision</span>
+                  </button>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSubmissionStudent(null)}
+                      className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-500"
+                    >
+                      Close
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSubmitIndividualMark}
+                      className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-xs font-bold shadow-md hover:opacity-90 flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Save Mark & Sync</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        </Modal>
+      )}
+
+      {/* =================================================================== */}
+      {/* MODAL: REDO / REVISION REQUEST */}
+      {/* =================================================================== */}
+      {redoModalOpen && (
+        <Modal
+          isOpen={redoModalOpen}
+          onClose={() => setRedoModalOpen(false)}
+          title="Request Submission Revision / Redo"
+          size="sm"
+        >
+          <div className="space-y-4">
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              This will reopen the homework / activity for <strong>{selectedSubmissionStudent?.name}</strong> to revise their answers and re-upload files. Their previous attempt will be archived.
+            </p>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Reason / Note for Student</label>
+              <textarea
+                rows={3}
+                value={redoReason}
+                onChange={e => setRedoReason(e.target.value)}
+                placeholder="e.g. Please re-upload clearer photos of your homework..."
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setRedoModalOpen(false)}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-slate-500"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmRedo}
+                className="px-4 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold cursor-pointer shadow-sm"
+              >
+                Confirm Redo
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* =================================================================== */}
+      {/* MODAL: IMAGE PREVIEW ZOOM */}
+      {/* =================================================================== */}
+      {viewingImagePreviewUrl && (
+        <Modal
+          isOpen={!!viewingImagePreviewUrl}
+          onClose={() => setViewingImagePreviewUrl(null)}
+          title="Student Submitted Image"
+          size="xl"
+        >
+          <div className="p-2 flex flex-col items-center gap-3">
+            <img src={viewingImagePreviewUrl} alt="Student file preview" className="max-h-[75vh] w-auto rounded-xl border shadow-md object-contain" />
+            <button
+              type="button"
+              onClick={() => setViewingImagePreviewUrl(null)}
+              className="px-5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs cursor-pointer hover:bg-slate-200"
+            >
+              Close
+            </button>
           </div>
         </Modal>
       )}

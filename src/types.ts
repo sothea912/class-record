@@ -369,6 +369,8 @@ export interface HomeworkItem {
   subcollectionFileId?: string;
   thumbnail?: string; // Base64 640x360 JPEG under 50KB
   difficulty?: number; // 1 to 5 (1=Very easy, 2=Easy, 3=Medium, 4=Hard, 5=Very hard)
+  allowStudentFileUpload?: boolean; // Default true: allows student file attachments
+  requireFileUpload?: boolean; // Default false: requires at least one file before submit
   questions?: HomeworkQuestion[];
 }
 
@@ -382,15 +384,30 @@ export interface HomeworkFileDoc {
   uploadedAt: string;
 }
 
+export interface SubmissionFileDoc {
+  id: string; // fileId
+  submissionId: string;
+  homeworkId: string;
+  studentId: string;
+  fileName: string;
+  fileType: string;
+  size: number;
+  base64Data: string;
+  createdAt: string;
+}
+
 export interface HomeworkAnswerKey {
   homeworkId: string;
   keys: Record<string, string | string[] | boolean>;
 }
 
 export interface HomeworkSubmissionFile {
+  fileId: string;
   name: string;
   type: string;
-  base64Data?: string;
+  size?: number;
+  previewUrl?: string;
+  base64Data?: string; // Kept only if small image or backward compatibility
   externalLink?: string;
 }
 
@@ -404,6 +421,7 @@ export interface HomeworkSubmission {
   isLate?: boolean;
   answers?: Record<string, any>;
   files?: HomeworkSubmissionFile[];
+  links?: string[];
   externalLink?: string;
   score?: number;
   questionMarks?: Record<string, number>;

@@ -62,8 +62,10 @@ import {
   TeacherSecurity,
   HomeworkItem,
   HomeworkFileDoc,
+  SubmissionFileDoc,
   HomeworkAnswerKey,
   HomeworkSubmission,
+  HomeworkSubmissionFile,
   TeacherNotificationItem,
   ActivityItem,
   ActivityAttempt,
@@ -2813,6 +2815,98 @@ export async function syncDeleteHomework(homeworkId: string): Promise<void> {
     console.log(`[Firestore] Deleted homework ${homeworkId} and all associated student submissions and classwork task.`);
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+
+/**
+ * Save or submit student homework submission with subcollection files
+ */
+export async function syncSaveHomeworkSubmissionWithFiles(
+  submission: HomeworkSubmission,
+  fileDocs: SubmissionFileDoc[],
+  studentName?: string,
+  homeworkTitle?: string
+): Promise<void> {
+  const path = `${COLLECTIONS.HOMEWORK_SUBMISSIONS}/${submission.id}`;
+  try {
+    // 1. Write individual file docs into the subcollection
+    for (const f of fileDocs) {
+      const fileRef = doc(db, COLLECTIONS.HOMEWORK_SUBMISSIONS, submission.id, 'files', f.id);
+      await setDoc(fileRef, sanitizeForFirestore(f));
+    }
+
+    // 2. Prepare submission document (metadata only in files array to keep document light)
+    const sanitizedFiles: HomeworkSubmissionFile[] = (submission.files || []).map(f => ({
+      fileId: f.fileId || f.name,
+      name: f.name,
+      type: f.type,
+      size: f.size || 0,
+      previewUrl: f.previewUrl,
+      externalLink: f.externalLink,
+    }));
+
+    const mainSubDoc: HomeworkSubmission = {
+      ...submission,
+      files: sanitizedFiles,
+    };
+
+    await setDoc(doc(db, COLLECTIONS.HOMEWORK_SUBMISSIONS, submission.id), sanitizeForFirestore(mainSubDoc));
+
+    // 3. Create teacher notification on submission
+    if ((submission.status === 'submitted' || submission.status === 'late') && studentName && homeworkTitle) {
+      const notifId = `notif_${Date.now()}_${submission.studentId.slice(0, 6)}`;
+      const notif: TeacherNotificationItem = {
+        id: notifId,
+        studentId: submission.studentId,
+        studentName,
+        type: 'homework_submitted',
+        title: homeworkTitle,
+        homeworkId: submission.homeworkId,
+        timestamp: new Date().toISOString(),
+        read: false,
+      };
+      await setDoc(doc(db, COLLECTIONS.TEACHER_NOTIFICATIONS, notifId), sanitizeForFirestore(notif)).catch(() => {});
+    }
+
+    console.log(`[Firestore] Saved submission ${submission.id} with ${fileDocs.length} files in subcollection`);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+    throw err;
+  }
+}
+
+/**
+ * Fetch all subcollection files for a student submission
+ */
+export async function syncFetchSubmissionFiles(submissionId: string): Promise<SubmissionFileDoc[]> {
+  try {
+    const colRef = collection(db, COLLECTIONS.HOMEWORK_SUBMISSIONS, submissionId, 'files');
+    const snap = await getDocs(colRef);
+    const list: SubmissionFileDoc[] = [];
+    snap.forEach(d => {
+      list.push(d.data() as SubmissionFileDoc);
+    });
+    return list;
+  } catch (err) {
+    console.warn('[Firestore] Failed to fetch submission files:', err);
+    return [];
+  }
+}
+
+/**
+ * Fetch a single subcollection file document
+ */
+export async function syncFetchSubmissionSingleFile(submissionId: string, fileId: string): Promise<SubmissionFileDoc | null> {
+  try {
+    const fileRef = doc(db, COLLECTIONS.HOMEWORK_SUBMISSIONS, submissionId, 'files', fileId);
+    const snap = await getDoc(fileRef);
+    if (snap.exists()) {
+      return snap.data() as SubmissionFileDoc;
+    }
+    return null;
+  } catch (err) {
+    console.warn('[Firestore] Failed to fetch single submission file:', err);
+    return null;
   }
 }
 

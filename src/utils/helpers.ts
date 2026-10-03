@@ -676,3 +676,97 @@ export const getDifficultyMeta = (diff?: number): DifficultyMeta => {
   return DIFFICULTY_LEVELS[diff || 3] || DIFFICULTY_LEVELS[3];
 };
 
+export type UrgencyLevel = 'overdue' | 'urgent' | 'medium' | 'long' | 'submitted';
+
+export interface UrgencyMeta {
+  level: UrgencyLevel;
+  label: string;
+  badgeClass: string;
+  dotColor: string;
+  sortRank: number; // 1: Overdue, 2: Urgent, 3: Medium, 4: Long, 5: Submitted
+}
+
+/**
+ * Calculates urgency badge and sort rank automatically from due time (Cambodia UTC+7)
+ * - Overdue = due in the past and not submitted -> red badge, sorts first
+ * - Urgent = within 48 hours -> red badge
+ * - Medium = within 7 days -> orange badge
+ * - Long = later than 7 days or flexible -> blue badge
+ * - Submitted / Marked -> drops to the bottom
+ */
+export function getActivityUrgency(dueDateTimeStr?: string, isSubmitted = false): UrgencyMeta {
+  if (isSubmitted) {
+    return {
+      level: 'submitted',
+      label: 'Submitted',
+      badgeClass: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800',
+      dotColor: 'bg-emerald-500',
+      sortRank: 5,
+    };
+  }
+
+  if (!dueDateTimeStr) {
+    return {
+      level: 'long',
+      label: 'Flexible',
+      badgeClass: 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border-blue-200 dark:border-blue-800',
+      dotColor: 'bg-blue-500',
+      sortRank: 4,
+    };
+  }
+
+  const dueDate = new Date(dueDateTimeStr);
+  if (isNaN(dueDate.getTime())) {
+    return {
+      level: 'long',
+      label: 'Flexible',
+      badgeClass: 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border-blue-200 dark:border-blue-800',
+      dotColor: 'bg-blue-500',
+      sortRank: 4,
+    };
+  }
+
+  const now = Date.now();
+  const diffMs = dueDate.getTime() - now;
+
+  if (diffMs < 0) {
+    return {
+      level: 'overdue',
+      label: 'Overdue',
+      badgeClass: 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-200 border-rose-300 dark:border-rose-700 animate-pulse',
+      dotColor: 'bg-rose-600',
+      sortRank: 1,
+    };
+  }
+
+  const diffHours = diffMs / (1000 * 60 * 60);
+
+  if (diffHours <= 48) {
+    return {
+      level: 'urgent',
+      label: 'Urgent (<48h)',
+      badgeClass: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200 dark:border-rose-800',
+      dotColor: 'bg-rose-500',
+      sortRank: 2,
+    };
+  }
+
+  if (diffHours <= 7 * 24) {
+    return {
+      level: 'medium',
+      label: 'Medium (≤7d)',
+      badgeClass: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800',
+      dotColor: 'bg-amber-500',
+      sortRank: 3,
+    };
+  }
+
+  return {
+    level: 'long',
+    label: 'Long (>7d)',
+    badgeClass: 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border-blue-200 dark:border-blue-800',
+    dotColor: 'bg-blue-500',
+    sortRank: 4,
+  };
+}
+

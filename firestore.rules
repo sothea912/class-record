@@ -241,6 +241,26 @@ service cloud.firestore {
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['score', 'questionMarks', 'questionComments', 'teacherNote', 'markedAt', 'markedBy'])
       );
       allow delete: if isTeacher();
+
+      // Subcollection for student submission files (PDF, DOC, DOCX, JPG, PNG <= 750KB)
+      match /files/{fileId} {
+        allow read: if isTeacher()
+          || (isSignedIn() && get(/databases/$(database)/documents/homework_submissions/$(submissionId)).data.studentId != null && isStudent(get(/databases/$(database)/documents/homework_submissions/$(submissionId)).data.studentId));
+        allow create, update: if isTeacher() || (
+          isSignedIn()
+          && request.resource.data.studentId != null
+          && isStudent(request.resource.data.studentId)
+          && submissionId.matches('.*_' + request.resource.data.studentId + '$')
+          && request.resource.data.submissionId == submissionId
+          && request.resource.data.size <= 750000
+          && !request.resource.data.keys().hasAny(['score', 'questionMarks', 'questionComments', 'teacherNote', 'markedAt', 'markedBy'])
+        );
+        allow delete: if isTeacher() || (
+          isSignedIn()
+          && get(/databases/$(database)/documents/homework_submissions/$(submissionId)).data.studentId != null
+          && isStudent(get(/databases/$(database)/documents/homework_submissions/$(submissionId)).data.studentId)
+        );
+      }
     }
 
     // Teacher Notifications (e.g. homework/quiz/exam submitted)

@@ -33,6 +33,7 @@ import {
   List,
   ArrowUpDown,
   Filter,
+  SlidersHorizontal,
 } from 'lucide-react';
 import {
   AppState,
@@ -94,9 +95,9 @@ export function formatTimeRemaining(dueDateTimeStr: string): { text: string; isO
 }
 
 export type ViewMode = 'gallery' | 'list';
-export type SortOption = 'due_soonest' | 'due_latest' | 'urgency' | 'type' | 'diff_asc' | 'diff_desc';
-export type StatusFilter = 'all' | 'todo' | 'submitted' | 'marked';
-export type TypeFilter = 'all' | 'homework' | 'quiz' | 'exam' | 'custom' | 'achievement';
+export type SortOption = 'urgency' | 'due_soonest' | 'due_latest' | 'diff_asc' | 'diff_desc' | 'type';
+export type StatusFilter = 'todo' | 'submitted' | 'marked';
+export type TypeFilter = 'all' | 'homework' | 'quiz' | 'exam' | 'custom';
 
 export interface UnifiedActivityItem {
   id: string;
@@ -144,15 +145,55 @@ export const StudentActivityView: React.FC<StudentActivityViewProps> = ({
     }
   });
 
-  const [sortBy, setSortBy] = useState<SortOption>('urgency');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [sortBy, setSortBy] = useState<SortOption>(() => {
+    try {
+      const saved = localStorage.getItem('student_activity_sort_by');
+      if (saved && ['urgency', 'due_soonest', 'due_latest', 'diff_asc', 'diff_desc', 'type'].includes(saved)) {
+        return saved as SortOption;
+      }
+    } catch {}
+    return 'urgency';
+  });
+
+  const [diffFilter, setDiffFilter] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('student_activity_diff_filter');
+      return saved ? parseInt(saved, 10) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  });
+
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('todo');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
+  const [isSortViewOpen, setIsSortViewOpen] = useState(false);
+  const [showBadgesModal, setShowBadgesModal] = useState(false);
 
   const handleSetViewMode = (mode: ViewMode) => {
     setViewMode(mode);
     try {
       localStorage.setItem('student_activity_view_mode', mode);
     } catch {}
+  };
+
+  const handleSetSortBy = (option: SortOption) => {
+    setSortBy(option);
+    try {
+      localStorage.setItem('student_activity_sort_by', option);
+    } catch {}
+  };
+
+  const handleSetDiffFilter = (diff: number) => {
+    setDiffFilter(diff);
+    try {
+      localStorage.setItem('student_activity_diff_filter', String(diff));
+    } catch {}
+  };
+
+  const handleResetSortView = () => {
+    handleSetSortBy('urgency');
+    handleSetViewMode('gallery');
+    handleSetDiffFilter(0);
   };
 
   // Active Homework Modal
@@ -747,7 +788,7 @@ export const StudentActivityView: React.FC<StudentActivityViewProps> = ({
     return list;
   }, [studentHomework, studentActivities, state.homeworkSubmissions, state.activityAttempts, studentId]);
 
-  // Counts for filter chips
+  // Counts for filter chips and tabs
   const counts = useMemo(() => {
     const total = allUnifiedActivities.length;
     const todo = allUnifiedActivities.filter(a => a.status === 'todo').length;
@@ -755,30 +796,46 @@ export const StudentActivityView: React.FC<StudentActivityViewProps> = ({
     const marked = allUnifiedActivities.filter(a => a.status === 'marked').length;
     const overdue = allUnifiedActivities.filter(a => a.isOverdue).length;
 
-    const hwCount = allUnifiedActivities.filter(a => a.kind === 'homework').length;
-    const quizCount = allUnifiedActivities.filter(a => a.kind === 'quiz').length;
-    const examCount = allUnifiedActivities.filter(a => a.kind === 'exam').length;
-    const customCount = allUnifiedActivities.filter(a => a.kind === 'custom').length;
+    // Type counts for currently selected status
+    const inCurrentStatus = allUnifiedActivities.filter(a => a.status === statusFilter);
+    const hwCount = inCurrentStatus.filter(a => a.kind === 'homework').length;
+    const quizCount = inCurrentStatus.filter(a => a.kind === 'quiz').length;
+    const examCount = inCurrentStatus.filter(a => a.kind === 'exam').length;
+    const customCount = inCurrentStatus.filter(a => a.kind === 'custom').length;
+    const allInStatus = inCurrentStatus.length;
 
-    return { total, todo, submitted, marked, overdue, hwCount, quizCount, examCount, customCount };
-  }, [allUnifiedActivities]);
+    return { total, todo, submitted, marked, overdue, allInStatus, hwCount, quizCount, examCount, customCount };
+  }, [allUnifiedActivities, statusFilter]);
 
   // Filtered and Sorted list of activities
   const filteredAndSortedActivities = useMemo(() => {
-    let result = [...allUnifiedActivities];
+    // 1. Filter by Status (To do | Submitted | Marked)
+    let result = allUnifiedActivities.filter(item => item.status === statusFilter);
 
-    // Filter by Type
-    if (typeFilter !== 'all' && typeFilter !== 'achievement') {
+    // 2. Filter by Type (All | Homework | Quizzes | Exams | Activities)
+    if (typeFilter !== 'all') {
       result = result.filter(item => item.kind === typeFilter);
     }
 
-    // Filter by Status
-    if (statusFilter !== 'all') {
-      result = result.filter(item => item.status === statusFilter);
+    // 3. Filter by Difficulty (All | 1-5 stars)
+    if (diffFilter > 0) {
+      result = result.filter(item => item.difficulty === diffFilter);
     }
 
-    // Sort
+    // 4. Sort
     result.sort((a, b) => {
+      if (sortBy === 'urgency') {
+        // Sort rank: 1: Overdue, 2: Urgent (<48h), 3: Medium (≤7d), 4: Long (>7d), 5: Submitted/Marked
+        if (a.urgency.sortRank !== b.urgency.sortRank) {
+          return a.urgency.sortRank - b.urgency.sortRank;
+        }
+        // Secondary sort: soonest due date
+        if (a.dueDateTime && b.dueDateTime) {
+          return new Date(a.dueDateTime).getTime() - new Date(b.dueDateTime).getTime();
+        }
+        return 0;
+      }
+
       if (sortBy === 'due_soonest') {
         if (!a.dueDateTime && !b.dueDateTime) return 0;
         if (!a.dueDateTime) return 1;
@@ -793,16 +850,12 @@ export const StudentActivityView: React.FC<StudentActivityViewProps> = ({
         return new Date(b.dueDateTime).getTime() - new Date(a.dueDateTime).getTime();
       }
 
-      if (sortBy === 'urgency') {
-        // Sort rank: 1: Overdue, 2: Urgent (<48h), 3: Medium (≤7d), 4: Long (>7d), 5: Submitted/Marked
-        if (a.urgency.sortRank !== b.urgency.sortRank) {
-          return a.urgency.sortRank - b.urgency.sortRank;
-        }
-        // Secondary sort: soonest due date
-        if (a.dueDateTime && b.dueDateTime) {
-          return new Date(a.dueDateTime).getTime() - new Date(b.dueDateTime).getTime();
-        }
-        return 0;
+      if (sortBy === 'diff_asc') {
+        return (a.difficulty || 3) - (b.difficulty || 3);
+      }
+
+      if (sortBy === 'diff_desc') {
+        return (b.difficulty || 3) - (a.difficulty || 3);
       }
 
       if (sortBy === 'type') {
@@ -813,32 +866,23 @@ export const StudentActivityView: React.FC<StudentActivityViewProps> = ({
         return a.title.localeCompare(b.title);
       }
 
-      if (sortBy === 'diff_asc') {
-        return (a.difficulty || 3) - (b.difficulty || 3);
-      }
-
-      if (sortBy === 'diff_desc') {
-        return (b.difficulty || 3) - (a.difficulty || 3);
-      }
-
       return 0;
     });
 
     return result;
-  }, [allUnifiedActivities, typeFilter, statusFilter, sortBy]);
+  }, [allUnifiedActivities, typeFilter, statusFilter, diffFilter, sortBy]);
 
-  // Action Button Renderer
+  // Action Button Renderer with short clean labels
   const renderActionButton = (item: UnifiedActivityItem) => {
     if (item.kind === 'homework') {
       const isMarked = item.status === 'marked';
-      const isSubmitted = item.status === 'submitted';
       return (
         <button
           type="button"
           onClick={() => setSelectedHomework(item.rawHomework!)}
-          className="px-3.5 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold hover:bg-purple-700 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 shadow-sm"
+          className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold active:scale-95 transition-all flex items-center gap-1 cursor-pointer shrink-0 shadow-xs min-h-[36px]"
         >
-          <span>{isMarked ? 'View Mark' : isSubmitted ? 'View Submission' : 'Open Homework'}</span>
+          <span>{isMarked ? 'View result' : 'Open'}</span>
           <ChevronRight className="w-3.5 h-3.5" />
         </button>
       );
@@ -858,9 +902,9 @@ export const StudentActivityView: React.FC<StudentActivityViewProps> = ({
                 setResultSlipAttempt({ attempt: item.rawAttempt, activity: item.rawActivity });
               }
             }}
-            className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+            className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold active:scale-95 transition-all flex items-center gap-1 cursor-pointer shrink-0 min-h-[36px]"
           >
-            <span>{isMarked ? 'View Result' : 'View Submission'}</span>
+            <span>View result</span>
             <ChevronRight className="w-3.5 h-3.5" />
           </button>
         );
@@ -877,9 +921,9 @@ export const StudentActivityView: React.FC<StudentActivityViewProps> = ({
               setConfirmStartActivity(item.rawActivity!);
             }
           }}
-          className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white rounded-xl text-xs font-bold active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 shadow-sm"
+          className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-bold active:scale-95 transition-all flex items-center gap-1 cursor-pointer shrink-0 shadow-xs min-h-[36px]"
         >
-          <span>{inProgress ? 'Resume Quiz' : 'Take Quiz'}</span>
+          <span>{inProgress ? 'Resume' : 'Take quiz'}</span>
           <ChevronRight className="w-3.5 h-3.5" />
         </button>
       );
@@ -899,9 +943,9 @@ export const StudentActivityView: React.FC<StudentActivityViewProps> = ({
                 setResultSlipAttempt({ attempt: item.rawAttempt, activity: item.rawActivity });
               }
             }}
-            className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+            className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold active:scale-95 transition-all flex items-center gap-1 cursor-pointer shrink-0 min-h-[36px]"
           >
-            <span>{isMarked ? 'Result Slip' : 'View Exam'}</span>
+            <span>View result</span>
             <ChevronRight className="w-3.5 h-3.5" />
           </button>
         );
@@ -917,9 +961,9 @@ export const StudentActivityView: React.FC<StudentActivityViewProps> = ({
               setConfirmStartActivity(item.rawActivity!);
             }
           }}
-          className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 shadow-sm"
+          className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold active:scale-95 transition-all flex items-center gap-1 cursor-pointer shrink-0 shadow-xs min-h-[36px]"
         >
-          <span>{inProgress ? 'Resume Exam' : 'Start Exam'}</span>
+          <span>{inProgress ? 'Resume' : 'Start exam'}</span>
           <ChevronRight className="w-3.5 h-3.5" />
         </button>
       );
@@ -937,350 +981,497 @@ export const StudentActivityView: React.FC<StudentActivityViewProps> = ({
             setConfirmStartActivity(item.rawActivity);
           }
         }}
-        className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 shadow-sm"
+        className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold active:scale-95 transition-all flex items-center gap-1 cursor-pointer shrink-0 shadow-xs min-h-[36px]"
       >
-        <span>{isMarked ? 'View Feedback' : 'Open Activity'}</span>
+        <span>{isMarked ? 'View result' : 'Open'}</span>
         <ChevronRight className="w-3.5 h-3.5" />
       </button>
     );
   };
 
-  return (
-    <div className="space-y-6 max-w-6xl mx-auto w-full min-w-0 overflow-hidden px-1 sm:px-0">
-      {/* =================================================================== */}
-      {/* WELCOME BANNER & STATS */}
-      {/* =================================================================== */}
-      <div className="bg-gradient-to-tr from-purple-900 via-indigo-900 to-slate-900 rounded-3xl p-5 sm:p-6 text-white shadow-xl space-y-4 overflow-hidden">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="min-w-0">
-            <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-white/10 backdrop-blur-sm text-purple-300">
-              Student Activity Hub
-            </span>
-            <h1 className="text-xl sm:text-2xl font-black tracking-tight mt-1 truncate">Class Activities & Tasks</h1>
-            <p className="text-xs text-purple-200/80 line-clamp-2 mt-0.5">
-              Complete homework assignments, quizzes & exams on time to achieve high scores!
-            </p>
-          </div>
+  // Helper for due text format
+  const getSubLineText = (item: UnifiedActivityItem) => {
+    let typeName = 'Homework';
+    if (item.kind === 'quiz') typeName = 'Quiz';
+    else if (item.kind === 'exam') typeName = 'Exam';
+    else if (item.kind === 'custom') typeName = 'Activity';
 
-          {/* Badges / Stat Quick Link */}
+    const dueText = item.dueDateTime ? item.countdown.text : 'Flexible';
+    return `${typeName} · ${dueText}`;
+  };
+
+  return (
+    <div className="max-w-5xl mx-auto w-full min-w-0 px-2 sm:px-4 space-y-3 sm:space-y-4 pb-28 sm:pb-16">
+      {/* =================================================================== */}
+      {/* 1. PAGE HEADER (Small title, one-line subtitle & Trophy Badges Button) */}
+      {/* =================================================================== */}
+      <div className="flex items-center justify-between gap-3 pt-0.5 pb-0.5">
+        <div className="min-w-0">
+          <h1 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight leading-tight">
+            Class Activity
+          </h1>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+            Your assignments, quizzes and exams in one place
+          </p>
+        </div>
+
+        {/* Trophy icon button for Badges */}
+        <button
+          type="button"
+          onClick={() => setShowBadgesModal(true)}
+          className="relative px-3 py-2 rounded-2xl bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/40 border border-amber-200/80 dark:border-amber-800/60 text-amber-700 dark:text-amber-300 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 min-h-[44px]"
+          title="View Achievements & Badges"
+        >
+          <Trophy className="w-4 h-4 text-amber-500" />
+          <span className="text-xs font-bold hidden sm:inline">{studentBadges.length} Badges</span>
           {studentBadges.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setTypeFilter('achievement')}
-              className="flex items-center gap-2.5 bg-white/10 hover:bg-white/15 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/10 transition-all cursor-pointer text-left shrink-0"
-            >
-              <Trophy className="w-5 h-5 text-amber-300 shrink-0" />
-              <div>
-                <span className="text-xs font-black block">{studentBadges.length} Badges Earned</span>
-                <span className="text-[10px] text-purple-200">View Achievements</span>
+            <span className="sm:hidden px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-500 text-white">
+              {studentBadges.length}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* =================================================================== */}
+      {/* 2. TYPE TABS (ONE single row: All, Homework, Quizzes, Exams, Activities) */}
+      {/* =================================================================== */}
+      <div className="relative w-full overflow-hidden">
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scrollbar-none py-1 -my-1">
+          {[
+            { id: 'all', label: 'All', count: counts.allInStatus },
+            { id: 'homework', label: 'Homework', count: counts.hwCount },
+            { id: 'quiz', label: 'Quizzes', count: counts.quizCount },
+            { id: 'exam', label: 'Exams', count: counts.examCount },
+            { id: 'custom', label: 'Activities', count: counts.customCount },
+          ].map(tab => {
+            const isActive = typeFilter === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setTypeFilter(tab.id as TypeFilter)}
+                className={`px-3.5 py-1.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer shrink-0 min-h-[38px] ${
+                  isActive
+                    ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-sm font-black'
+                    : 'bg-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                }`}
+              >
+                <span>{tab.label}</span>
+                {tab.count > 0 && (
+                  <span
+                    className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                      isActive
+                        ? 'bg-white/20 text-white'
+                        : 'bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* =================================================================== */}
+      {/* 3. STATUS ROW (To do | Submitted | Marked) & 4. SORT & VIEW BUTTON */}
+      {/* =================================================================== */}
+      <div className="flex items-center justify-between gap-2 pt-0.5">
+        {/* Status Segmented Control */}
+        <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800/80 rounded-2xl border border-slate-200/60 dark:border-slate-800 shrink-0">
+          {(['todo', 'submitted', 'marked'] as const).map(st => {
+            const isActive = statusFilter === st;
+            const count = st === 'todo' ? counts.todo : st === 'submitted' ? counts.submitted : counts.marked;
+            const label = st === 'todo' ? 'To do' : st === 'submitted' ? 'Submitted' : 'Marked';
+            return (
+              <button
+                key={st}
+                type="button"
+                onClick={() => setStatusFilter(st)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer min-h-[36px] ${
+                  isActive
+                    ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-xs font-black'
+                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                }`}
+              >
+                <span>{label}</span>
+                <span className={`text-[10px] font-mono ${isActive ? 'text-purple-600 dark:text-purple-400 font-bold' : 'text-slate-400'}`}>
+                  ({count})
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Sort & View compact button */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setIsSortViewOpen(prev => !prev)}
+            className={`px-3 py-1.5 rounded-2xl border text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer min-h-[44px] ${
+              isSortViewOpen || diffFilter > 0 || sortBy !== 'urgency' || viewMode !== 'gallery'
+                ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-300 dark:border-purple-800 text-purple-700 dark:text-purple-300'
+                : 'bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 border-slate-200/60 dark:border-slate-800 text-slate-700 dark:text-slate-200'
+            }`}
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5 text-purple-500" />
+            <span className="hidden xs:inline sm:inline">Sort & view</span>
+            <span className="xs:hidden sm:hidden">Sort</span>
+            {(diffFilter > 0 || sortBy !== 'urgency') && (
+              <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+            )}
+          </button>
+
+          {/* Desktop Dropdown Popover */}
+          {isSortViewOpen && (
+            <div className="hidden sm:block absolute right-0 top-full mt-2 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 shadow-xl z-50 space-y-4">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                <span className="text-xs font-black text-slate-900 dark:text-white">Sort & View Options</span>
+                <button
+                  type="button"
+                  onClick={() => setIsSortViewOpen(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-            </button>
+
+              {/* View toggle */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-400">View Layout</label>
+                <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => handleSetViewMode('gallery')}
+                    className={`py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                      viewMode === 'gallery'
+                        ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                    <span>Gallery</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSetViewMode('list')}
+                    className={`py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                      viewMode === 'list'
+                        ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    <List className="w-3.5 h-3.5" />
+                    <span>List</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Sort by */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-400">Sort by</label>
+                <select
+                  value={sortBy}
+                  onChange={e => handleSetSortBy(e.target.value as SortOption)}
+                  className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
+                >
+                  <option value="urgency">⚡ Urgency (Automatic)</option>
+                  <option value="due_soonest">⏰ Due Date (Soonest first)</option>
+                  <option value="due_latest">📅 Due Date (Latest first)</option>
+                  <option value="diff_asc">⭐ Difficulty (Easy → Hard)</option>
+                  <option value="diff_desc">🌟 Difficulty (Hard → Easy)</option>
+                  <option value="type">📂 Activity Type</option>
+                </select>
+              </div>
+
+              {/* Difficulty filter */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-400">Filter by Difficulty</label>
+                <div className="grid grid-cols-3 gap-1">
+                  {[
+                    { val: 0, label: 'All' },
+                    { val: 1, label: '★ 1' },
+                    { val: 2, label: '★★ 2' },
+                    { val: 3, label: '★★★ 3' },
+                    { val: 4, label: '★★★★ 4' },
+                    { val: 5, label: '★★★★★ 5' },
+                  ].map(d => (
+                    <button
+                      key={d.val}
+                      type="button"
+                      onClick={() => handleSetDiffFilter(d.val)}
+                      className={`py-1 rounded-lg text-[11px] font-bold transition-all text-center cursor-pointer ${
+                        diffFilter === d.val
+                          ? 'bg-purple-600 text-white'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Reset & Done */}
+              <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={handleResetSortView}
+                  className="text-xs font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex items-center gap-1 cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Reset</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsSortViewOpen(false)}
+                  className="px-4 py-1.5 bg-purple-600 text-white rounded-xl text-xs font-bold hover:bg-purple-700 cursor-pointer"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
           )}
         </div>
       </div>
 
-      {/* =================================================================== */}
-      {/* CONTROL BAR: TYPE CHIPS, VIEW TOGGLE, SORTING, STATUS CHIPS */}
-      {/* =================================================================== */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-sm space-y-4">
-        {/* Row 1: Type Filter Chips & Controls */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5">
-          {/* Type Filter Chips */}
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            {[
-              { id: 'all', label: 'All activities', icon: Sparkles, count: counts.total },
-              { id: 'homework', label: 'Homework', icon: BookOpen, count: counts.hwCount },
-              { id: 'quiz', label: 'Quizzes', icon: HelpCircle, count: counts.quizCount },
-              { id: 'exam', label: 'Exams', icon: Award, count: counts.examCount },
-              { id: 'custom', label: 'Custom', icon: CheckSquare, count: counts.customCount },
-              { id: 'achievement', label: 'Achievements', icon: Trophy, count: studentBadges.length },
-            ].map(tab => {
-              const Icon = tab.icon;
-              const isActive = typeFilter === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setTypeFilter(tab.id as TypeFilter)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                    isActive
-                      ? 'bg-purple-600 text-white shadow-sm'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  <span>{tab.label}</span>
-                  {tab.count > 0 && (
-                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
-                      isActive ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-                    }`}>
-                      {tab.count}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Controls: View Mode & Sort Dropdown */}
-          <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2.5 pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-100 dark:border-slate-800">
-            {/* Sort by Dropdown */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs font-bold text-slate-400 hidden sm:flex items-center gap-1">
-                <ArrowUpDown className="w-3.5 h-3.5" /> Sort:
-              </span>
-              <select
-                value={sortBy}
-                onChange={e => setSortBy(e.target.value as SortOption)}
-                aria-label="Sort activities by"
-                className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
-              >
-                <option value="urgency">⚡ Urgency (Auto)</option>
-                <option value="due_soonest">⏰ Due (Soonest first)</option>
-                <option value="due_latest">📅 Due (Latest first)</option>
-                <option value="diff_asc">⭐ Difficulty (Easy → Hard)</option>
-                <option value="diff_desc">🌟 Difficulty (Hard → Easy)</option>
-                <option value="type">📂 Activity Type</option>
-              </select>
-            </div>
-
-            {/* View Mode Toggle: Gallery vs List */}
-            <div className="flex items-center p-0.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200/80 dark:border-slate-700">
+      {/* Phone Bottom Sheet for Sort & View */}
+      {isSortViewOpen && (
+        <div className="sm:hidden fixed inset-0 z-50 flex flex-col justify-end bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
+          <div
+            className="fixed inset-0"
+            onClick={() => setIsSortViewOpen(false)}
+          />
+          <div className="relative bg-white dark:bg-slate-900 rounded-t-3xl p-5 border-t border-slate-200 dark:border-slate-800 shadow-2xl space-y-4 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+              <span className="text-sm font-black text-slate-900 dark:text-white">Sort & View Options</span>
               <button
                 type="button"
-                onClick={() => handleSetViewMode('gallery')}
-                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                  viewMode === 'gallery'
-                    ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-xs font-black'
-                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                }`}
-                title="Gallery View (Large Cards)"
+                onClick={() => setIsSortViewOpen(false)}
+                className="p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 min-h-[44px] flex items-center justify-center"
               >
-                <LayoutGrid className="w-4 h-4" />
-                <span className="text-[11px]">Gallery</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSetViewMode('list')}
-                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                  viewMode === 'list'
-                    ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-xs font-black'
-                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                }`}
-                title="List View (Compact Rows)"
-              >
-                <List className="w-4 h-4" />
-                <span className="text-[11px]">List</span>
+                <X className="w-5 h-5" />
               </button>
             </div>
-          </div>
-        </div>
 
-        {/* Row 2: Status Filter Chips (All, To do, Submitted, Marked) */}
-        {typeFilter !== 'achievement' && (
-          <div className="flex flex-wrap items-center gap-1.5 pt-3 border-t border-slate-100 dark:border-slate-800">
-            <span className="text-[11px] font-bold text-slate-400 mr-1 flex items-center gap-1">
-              <Filter className="w-3 h-3" /> Status:
-            </span>
-            {[
-              { id: 'all', label: 'All', count: counts.total },
-              { id: 'todo', label: 'To do', count: counts.todo },
-              { id: 'submitted', label: 'Submitted', count: counts.submitted },
-              { id: 'marked', label: 'Marked', count: counts.marked },
-            ].map(st => {
-              const isActive = statusFilter === st.id;
-              return (
+            {/* View toggle */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-400">View Layout</label>
+              <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-2xl">
                 <button
-                  key={st.id}
                   type="button"
-                  onClick={() => setStatusFilter(st.id as StatusFilter)}
-                  className={`px-3 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                    isActive
-                      ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-800'
-                      : 'bg-slate-50 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 border border-transparent hover:border-slate-200 dark:hover:border-slate-700'
+                  onClick={() => handleSetViewMode('gallery')}
+                  className={`py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer min-h-[44px] ${
+                    viewMode === 'gallery'
+                      ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-xs font-black'
+                      : 'text-slate-500'
                   }`}
                 >
-                  <span>{st.label}</span>
-                  <span className={`text-[10px] font-mono ${isActive ? 'text-purple-600 dark:text-purple-300' : 'text-slate-400'}`}>
-                    ({st.count})
-                  </span>
+                  <LayoutGrid className="w-4 h-4" />
+                  <span>Gallery</span>
                 </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* =================================================================== */}
-      {/* MAIN VIEW: GALLERY OR LIST OF ACTIVITIES */}
-      {/* =================================================================== */}
-      {typeFilter === 'achievement' ? (
-        /* Achievements & Badges Gallery */
-        <div className="space-y-6">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-6 space-y-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
-                <Trophy className="w-5 h-5 text-amber-500" />
-                <span>Earned Achievements & Badges</span>
-              </h3>
-              <span className="text-xs font-bold text-slate-400">{studentBadges.length} Total</span>
-            </div>
-
-            {studentBadges.length === 0 ? (
-              <div className="py-12 text-center text-slate-400 text-xs">
-                Complete homework and quizzes with high scores to earn achievement badges!
+                <button
+                  type="button"
+                  onClick={() => handleSetViewMode('list')}
+                  className={`py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer min-h-[44px] ${
+                    viewMode === 'list'
+                      ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-xs font-black'
+                      : 'text-slate-500'
+                  }`}
+                >
+                  <List className="w-4 h-4" />
+                  <span>List</span>
+                </button>
               </div>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                {studentBadges.map(badge => (
-                  <div key={badge.id} className="p-4 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20 border border-amber-200/80 dark:border-amber-800/40 rounded-2xl text-center space-y-2 shadow-xs">
-                    <div className="w-12 h-12 mx-auto rounded-full bg-amber-500 text-white flex items-center justify-center shadow-md shadow-amber-500/20">
-                      <Award className="w-6 h-6" />
-                    </div>
-                    <h4 className="font-bold text-xs text-slate-900 dark:text-white">{badge.title}</h4>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">{badge.description}</p>
-                    <span className="text-[9px] text-amber-700 dark:text-amber-400 font-mono block">
-                      {new Date(badge.awardedAt).toLocaleDateString()}
-                    </span>
-                  </div>
+            </div>
+
+            {/* Sort by */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-400">Sort by</label>
+              <div className="space-y-1">
+                {[
+                  { val: 'urgency', label: '⚡ Urgency (Automatic)' },
+                  { val: 'due_soonest', label: '⏰ Due Date (Soonest first)' },
+                  { val: 'due_latest', label: '📅 Due Date (Latest first)' },
+                  { val: 'diff_asc', label: '⭐ Difficulty (Easy → Hard)' },
+                  { val: 'diff_desc', label: '🌟 Difficulty (Hard → Easy)' },
+                  { val: 'type', label: '📂 Activity Type' },
+                ].map(opt => (
+                  <button
+                    key={opt.val}
+                    type="button"
+                    onClick={() => handleSetSortBy(opt.val as SortOption)}
+                    className={`w-full px-3 py-2.5 rounded-xl text-xs font-bold text-left flex items-center justify-between min-h-[44px] ${
+                      sortBy === opt.val
+                        ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-black border border-purple-200 dark:border-purple-800'
+                        : 'bg-slate-50 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    <span>{opt.label}</span>
+                    {sortBy === opt.val && <Check className="w-4 h-4 text-purple-600 dark:text-purple-400" />}
+                  </button>
                 ))}
               </div>
-            )}
+            </div>
+
+            {/* Difficulty filter */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-400">Filter by Difficulty</label>
+              <div className="grid grid-cols-3 gap-1.5">
+                {[
+                  { val: 0, label: 'All' },
+                  { val: 1, label: '★ 1' },
+                  { val: 2, label: '★★ 2' },
+                  { val: 3, label: '★★★ 3' },
+                  { val: 4, label: '★★★★ 4' },
+                  { val: 5, label: '★★★★★ 5' },
+                ].map(d => (
+                  <button
+                    key={d.val}
+                    type="button"
+                    onClick={() => handleSetDiffFilter(d.val)}
+                    className={`py-2 rounded-xl text-xs font-bold transition-all text-center min-h-[44px] flex items-center justify-center ${
+                      diffFilter === d.val
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Reset & Done buttons */}
+            <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={handleResetSortView}
+                className="text-xs font-bold text-slate-400 hover:text-slate-600 flex items-center gap-1.5 min-h-[44px]"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>Reset</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsSortViewOpen(false)}
+                className="px-6 py-2.5 bg-purple-600 text-white rounded-xl text-xs font-bold hover:bg-purple-700 min-h-[44px] flex items-center justify-center"
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>
-      ) : filteredAndSortedActivities.length === 0 ? (
-        /* Empty State */
-        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-12 text-center space-y-3 shadow-sm">
+      )}
+
+      {/* =================================================================== */}
+      {/* 5. MAIN CONTENT: CARDS (Gallery or List) OR FRIENDLY EMPTY STATE */}
+      {/* =================================================================== */}
+      {filteredAndSortedActivities.length === 0 ? (
+        /* Friendly Empty State */
+        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-8 sm:p-12 text-center space-y-3 shadow-xs">
           <div className="w-14 h-14 mx-auto rounded-2xl bg-purple-50 dark:bg-purple-950/40 text-purple-600 flex items-center justify-center">
-            <BookOpen className="w-7 h-7" />
+            {statusFilter === 'todo' ? (
+              <CheckCircle2 className="w-7 h-7 text-emerald-500" />
+            ) : statusFilter === 'submitted' ? (
+              <Clock className="w-7 h-7 text-blue-500" />
+            ) : (
+              <Award className="w-7 h-7 text-amber-500" />
+            )}
           </div>
-          <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">No activities found</h3>
+          <h3 className="text-sm sm:text-base font-bold text-slate-800 dark:text-slate-200">
+            {statusFilter === 'todo'
+              ? 'All done! Nothing left to do'
+              : statusFilter === 'submitted'
+              ? 'No submissions waiting for review'
+              : 'No graded activities yet'}
+          </h3>
           <p className="text-xs text-slate-400 max-w-sm mx-auto">
-            {statusFilter !== 'all' || typeFilter !== 'all'
-              ? 'No items match your current filter settings. Try switching filters.'
-              : 'You have no published class activities at the moment.'}
+            {statusFilter === 'todo'
+              ? 'You have completed all pending homework and activities. Great job!'
+              : statusFilter === 'submitted'
+              ? 'Assignments and quizzes you have submitted will appear here while waiting to be graded.'
+              : 'Feedback and marks from your teacher will appear here as soon as they are ready.'}
           </p>
         </div>
       ) : viewMode === 'gallery' ? (
         /* =================================================================== */
-        /* GALLERY VIEW: 2 COLUMNS ON DESKTOP, 1 ON PHONE */
+        /* GALLERY VIEW: 1 COLUMN ON PHONE, 2 COLUMNS ON DESKTOP */
         /* =================================================================== */
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 sm:gap-4">
           {filteredAndSortedActivities.map(item => {
             const diffMeta = getDifficultyMeta(item.difficulty);
-            const isHomework = item.kind === 'homework';
-            const isQuiz = item.kind === 'quiz';
-            const isExam = item.kind === 'exam';
-            const isCustom = item.kind === 'custom';
-
-            let typeBadgeLabel = 'Homework';
-            let typeBadgeClass = 'bg-purple-100/90 text-purple-800 dark:bg-purple-950/90 dark:text-purple-200 border-purple-200 dark:border-purple-800';
-            if (isQuiz) {
-              typeBadgeLabel = 'Quiz';
-              typeBadgeClass = 'bg-indigo-100/90 text-indigo-800 dark:bg-indigo-950/90 dark:text-indigo-200 border-indigo-200 dark:border-indigo-800';
-            } else if (isExam) {
-              typeBadgeLabel = 'Exam';
-              typeBadgeClass = 'bg-rose-100/90 text-rose-800 dark:bg-rose-950/90 dark:text-rose-200 border-rose-200 dark:border-rose-800';
-            } else if (isCustom) {
-              typeBadgeLabel = 'Activity';
-              typeBadgeClass = 'bg-amber-100/90 text-amber-800 dark:bg-amber-950/90 dark:text-amber-200 border-amber-200 dark:border-amber-800';
-            }
-
             return (
               <div
                 key={item.id}
-                className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-4 group overflow-hidden"
+                className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-3.5 sm:p-4 shadow-xs hover:border-purple-300 dark:hover:border-purple-700 transition-all flex flex-col justify-between space-y-3 group overflow-hidden"
               >
-                {/* Top: Thumbnail with Kind gradient / custom thumbnail */}
-                <div className="space-y-3">
-                  <ActivityCardThumbnail
-                    thumbnail={item.thumbnail}
-                    kind={item.kind}
-                    difficulty={item.difficulty}
-                    label={item.kind === 'homework' ? (item.type === 'form' ? 'Interactive Form' : 'Document') : typeBadgeLabel}
-                    topLeftBadge={
-                      <span className={`px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider backdrop-blur-md border shadow-xs ${typeBadgeClass}`}>
-                        {typeBadgeLabel}
-                      </span>
-                    }
-                    topRightBadge={
-                      <span
-                        className={`px-2.5 py-1 rounded-xl text-[10px] font-bold backdrop-blur-md border shadow-xs bg-white/90 dark:bg-slate-900/90 ${diffMeta.badgeClass}`}
-                        title={`Difficulty: ${diffMeta.label}`}
-                      >
-                        <span className="opacity-90">{diffMeta.stars}</span> {diffMeta.shortLabel}
-                      </span>
-                    }
-                  />
+                {/* Thumbnail on top */}
+                <div className="space-y-2.5">
+                  <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-slate-900 border border-slate-200/80 dark:border-slate-800 shrink-0">
+                    {item.thumbnail ? (
+                      <img
+                        src={item.thumbnail}
+                        alt={item.title}
+                        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-gradient-to-tr from-purple-700 to-indigo-900 flex items-center justify-center text-white">
+                        {item.kind === 'quiz' ? (
+                          <HelpCircle className="w-8 h-8 opacity-80" />
+                        ) : item.kind === 'exam' ? (
+                          <Award className="w-8 h-8 opacity-80" />
+                        ) : (
+                          <BookOpen className="w-8 h-8 opacity-80" />
+                        )}
+                      </div>
+                    )}
+                  </div>
 
-                  {/* Badges Bar: Urgency badge, Due Countdown, Points */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    {/* Urgency Badge (shown on every card) */}
-                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border flex items-center gap-1.5 ${item.urgency.badgeClass}`}>
-                      <span className={`w-2 h-2 rounded-full ${item.urgency.dotColor}`} />
+                  {/* Title */}
+                  <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white line-clamp-2 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors leading-snug">
+                    {item.title}
+                  </h3>
+
+                  {/* Muted line: Type · Due text */}
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                    {getSubLineText(item)}
+                  </p>
+
+                  {/* Urgency Badge and Difficulty Stars on one row */}
+                  <div className="flex items-center justify-between gap-2 pt-0.5">
+                    {/* Urgency Badge */}
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border flex items-center gap-1 ${item.urgency.badgeClass}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${item.urgency.dotColor}`} />
                       <span>{item.urgency.label}</span>
                     </span>
 
-                    {/* Due Countdown */}
-                    {item.dueDateTime && (
-                      <span className={`text-[11px] font-semibold flex items-center gap-1 ${item.countdown.isOverdue && item.status === 'todo' ? 'text-rose-500 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
-                        <Clock className="w-3 h-3 text-slate-400" />
-                        <span>{item.countdown.text}</span>
-                      </span>
-                    )}
-
-                    {/* Max points */}
-                    <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 ml-auto">
-                      Max: <strong className="text-purple-600 dark:text-purple-400">{item.maxScore} pts</strong>
+                    {/* Muted Difficulty Stars */}
+                    <span className="text-[11px] text-amber-500/80 tracking-wider font-mono" title={`Difficulty: ${diffMeta.label}`}>
+                      {diffMeta.stars}
                     </span>
-                  </div>
-
-                  {/* Title & Instructions */}
-                  <div>
-                    <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white line-clamp-2 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">
-                      {item.title}
-                    </h3>
-                    {item.instructions && (
-                      <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 mt-1 leading-relaxed">
-                        {item.instructions}
-                      </p>
-                    )}
                   </div>
                 </div>
 
-                {/* Bottom Bar: Status pill, Score, and Action Button */}
-                <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+                {/* Bottom Row: Status on left, action button on right */}
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
                   <div className="min-w-0">
                     {item.status === 'marked' ? (
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                        <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 truncate">
-                          Graded: {item.score}/{item.maxScore} pts
-                        </span>
-                        {item.grade && (
-                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
-                            {item.grade}
-                          </span>
-                        )}
-                      </div>
+                      <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                        Graded: {item.score}/{item.maxScore}
+                      </span>
                     ) : item.status === 'submitted' ? (
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />
-                        <span className="text-xs font-bold text-blue-600 dark:text-blue-400 truncate">
-                          Submitted {item.detailedStatus === 'late' ? '(Late)' : ''}
-                        </span>
-                      </div>
+                      <span className="text-xs font-bold text-blue-600 dark:text-blue-400">
+                        Submitted {item.detailedStatus === 'late' ? '(Late)' : ''}
+                      </span>
                     ) : (
-                      <div className="flex items-center gap-1.5">
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${item.isOverdue ? 'bg-rose-500' : 'bg-amber-500'}`} />
-                        <span className="text-xs font-bold text-slate-600 dark:text-slate-400 truncate">
-                          {item.detailedStatus === 'in_progress' ? 'In Progress' : 'To Do'}
-                        </span>
-                      </div>
+                      <span className={`text-xs font-bold ${item.isOverdue ? 'text-rose-500' : 'text-slate-500 dark:text-slate-400'}`}>
+                        {item.detailedStatus === 'in_progress' ? 'In Progress' : 'To Do'}
+                      </span>
                     )}
                   </div>
 
-                  {/* Action Button */}
                   {renderActionButton(item)}
                 </div>
               </div>
@@ -1289,80 +1480,73 @@ export const StudentActivityView: React.FC<StudentActivityViewProps> = ({
         </div>
       ) : (
         /* =================================================================== */
-        /* LIST VIEW: COMPACT ROWS */
+        /* LIST VIEW: COMPACT TWO-LINE CLEAN ROWS */
         /* =================================================================== */
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           {filteredAndSortedActivities.map(item => {
             const diffMeta = getDifficultyMeta(item.difficulty);
             return (
               <div
                 key={item.id}
-                className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs hover:border-purple-300 dark:hover:border-purple-700 transition-all group overflow-hidden"
+                className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-3 sm:p-3.5 shadow-xs hover:border-purple-300 dark:hover:border-purple-700 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 group overflow-hidden"
               >
-                {/* Left: Thumbnail & Details */}
-                <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-                  {/* Small 16:9 Thumbnail preview */}
-                  <div className="w-16 h-11 sm:w-24 sm:h-14 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-800 shrink-0 relative">
+                {/* Left: 56px thumbnail + details */}
+                <div className="flex items-center gap-3 min-w-0">
+                  {/* 56px thumbnail */}
+                  <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-800 shrink-0 relative">
                     {item.thumbnail ? (
                       <img src={item.thumbnail} alt={item.title} className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full bg-gradient-to-tr from-purple-700 to-indigo-900 flex items-center justify-center text-white">
-                        {item.kind === 'quiz' ? <HelpCircle className="w-4 h-4 sm:w-5 sm:h-5" /> : item.kind === 'exam' ? <Award className="w-4 h-4 sm:w-5 sm:h-5" /> : <BookOpen className="w-4 h-4 sm:w-5 sm:h-5" />}
+                        {item.kind === 'quiz' ? (
+                          <HelpCircle className="w-5 h-5 opacity-80" />
+                        ) : item.kind === 'exam' ? (
+                          <Award className="w-5 h-5 opacity-80" />
+                        ) : (
+                          <BookOpen className="w-5 h-5 opacity-80" />
+                        )}
                       </div>
                     )}
                   </div>
 
-                  {/* Info */}
-                  <div className="min-w-0 space-y-1">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {/* Type Badge */}
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                        {item.kind === 'homework' ? (item.type === 'form' ? 'Form' : 'Doc') : item.kind}
-                      </span>
+                  {/* Middle Info */}
+                  <div className="min-w-0 space-y-0.5">
+                    {/* Line 1: Title (up to 2 lines) */}
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white line-clamp-2 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors leading-snug">
+                      {item.title}
+                    </h3>
 
-                      {/* Urgency Badge */}
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border flex items-center gap-1 ${item.urgency.badgeClass}`}>
+                    {/* Line 2: type name · due text */}
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                      {getSubLineText(item)}
+                    </p>
+
+                    {/* Urgency Badge & Muted Stars */}
+                    <div className="flex items-center gap-2 pt-0.5">
+                      <span className={`px-2 py-0.2 rounded-full text-[10px] font-bold border flex items-center gap-1 ${item.urgency.badgeClass}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${item.urgency.dotColor}`} />
                         <span>{item.urgency.label}</span>
                       </span>
 
-                      {/* Difficulty Stars */}
-                      <span className="text-[10px] font-bold text-amber-500" title={`Difficulty: ${diffMeta.label}`}>
+                      <span className="text-[10px] text-amber-500/80 tracking-wider font-mono" title={`Difficulty: ${diffMeta.label}`}>
                         {diffMeta.stars}
                       </span>
-                    </div>
-
-                    {/* Title */}
-                    <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white truncate group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">
-                      {item.title}
-                    </h4>
-
-                    {/* Due Date & Max points */}
-                    <div className="flex items-center gap-2 text-[10px] text-slate-400">
-                      {item.dueDateTime && (
-                        <span className={`flex items-center gap-1 ${item.countdown.isOverdue && item.status === 'todo' ? 'text-rose-500 font-bold' : ''}`}>
-                          <Clock className="w-2.5 h-2.5" />
-                          <span>{item.countdown.text}</span>
-                        </span>
-                      )}
-                      <span>&middot;</span>
-                      <span>Max: {item.maxScore} pts</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Right: Status & Action Button */}
+                {/* Bottom on phone / Right on desktop: Status & Short Action Button */}
                 <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800 shrink-0">
                   {item.status === 'marked' ? (
-                    <span className="text-xs font-black text-emerald-600 font-mono">
-                      {item.score}/{item.maxScore} pts
+                    <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                      Graded: {item.score}/{item.maxScore}
                     </span>
                   ) : item.status === 'submitted' ? (
-                    <span className="text-xs font-bold text-blue-600 font-mono">
+                    <span className="text-xs font-bold text-blue-600 dark:text-blue-400">
                       Submitted
                     </span>
                   ) : (
-                    <span className={`text-xs font-bold font-mono ${item.isOverdue ? 'text-rose-500' : 'text-slate-400'}`}>
+                    <span className={`text-xs font-bold ${item.isOverdue ? 'text-rose-500' : 'text-slate-400'}`}>
                       {item.isOverdue ? 'Overdue' : 'To Do'}
                     </span>
                   )}
@@ -1373,6 +1557,68 @@ export const StudentActivityView: React.FC<StudentActivityViewProps> = ({
             );
           })}
         </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* 6. ACHIEVEMENTS & BADGES MODAL */}
+      {/* =================================================================== */}
+      {showBadgesModal && (
+        <Modal
+          isOpen={showBadgesModal}
+          onClose={() => setShowBadgesModal(false)}
+          title="Earned Achievements & Badges"
+          size="md"
+        >
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Badges awarded for outstanding performance and completed assignments
+              </p>
+              <span className="text-xs font-black text-purple-600 dark:text-purple-400 shrink-0">
+                {studentBadges.length} Total
+              </span>
+            </div>
+
+            {studentBadges.length === 0 ? (
+              <div className="py-12 text-center text-slate-400 text-xs space-y-2">
+                <Trophy className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto" />
+                <p>Complete homework and quizzes with high scores to earn achievement badges!</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {studentBadges.map(badge => (
+                  <div
+                    key={badge.id}
+                    className="p-3.5 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20 border border-amber-200/80 dark:border-amber-800/40 rounded-2xl text-center space-y-1.5 shadow-xs"
+                  >
+                    <div className="w-10 h-10 mx-auto rounded-full bg-amber-500 text-white flex items-center justify-center shadow-md shadow-amber-500/20">
+                      <Award className="w-5 h-5" />
+                    </div>
+                    <h4 className="font-bold text-xs text-slate-900 dark:text-white leading-tight">
+                      {badge.title}
+                    </h4>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight line-clamp-2">
+                      {badge.description}
+                    </p>
+                    <span className="text-[9px] text-amber-700 dark:text-amber-400 font-mono block">
+                      {new Date(badge.awardedAt).toLocaleDateString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setShowBadgesModal(false)}
+                className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* =================================================================== */}

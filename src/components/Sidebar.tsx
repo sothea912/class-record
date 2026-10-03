@@ -26,6 +26,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { NavView, UserProfile } from '../types';
+import { APP_VERSION } from '../constants';
 
 interface SidebarProps {
   currentView: NavView;
@@ -567,10 +568,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {/* Live Firestore indicator */}
             <div
               className="flex items-center gap-1.5 cursor-help"
-              title="Firestore live database connection active and fully synced"
+              title={`Firestore live database connection active · ${APP_VERSION}`}
             >
               <span className="w-2 h-2 rounded-full bg-[#4BA95F] animate-pulse" />
               <span className="text-[10px] font-bold text-[#4BA95F] dark:text-[#6cd283] select-none">Live Sync</span>
+              <span className="text-[9px] font-mono text-slate-400 dark:text-slate-500 select-none">({APP_VERSION})</span>
             </div>
 
             {/* Quick Actions Buttons */}

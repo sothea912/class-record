@@ -66,13 +66,85 @@ export const StudentDashboardWidgets: React.FC<StudentDashboardWidgetsProps> = (
   onOpenScoresOverlay,
 }) => {
   // Modal states for expanded cards
-  const [activeModal, setActiveModal] = useState<'attendance' | 'rank' | 'schedule' | 'score' | 'subject_perf' | 'recent_att' | null>(null);
+  const [activeModal, setActiveModal] = useState<'attendance' | 'rank' | 'schedule' | 'score' | 'subject_perf' | null>(null);
 
   // Data calculations
   const currentMonth = thisMonth();
   const activeClassId = currentClassObj?.id || state.classes[0]?.id || '';
   const periodResults = activeClassId ? computeResults(activeClassId, [currentMonth], state) : null;
   const myResult = periodResults?.rows.find(r => r.student.id === student.id);
+
+  // Activity / To Do calculation (Homework, Quizzes, Exams open and not yet submitted)
+  const studentEnrolledClassIds = student.classIds?.length
+    ? student.classIds
+    : currentClassObj
+    ? [currentClassObj.id]
+    : state.classes.length
+    ? [state.classes[0].id]
+    : [];
+
+  const nowMs = Date.now();
+
+  // Published Homework for student's classes
+  const relevantHomework = (state.homework || []).filter(
+    h => h.published && h.classIds.some(cId => studentEnrolledClassIds.includes(cId))
+  );
+
+  const pendingHomework = relevantHomework.filter(h => {
+    // Check if student has submitted
+    const isSubmitted = (state.homeworkSubmissions || []).some(
+      s => s.homeworkId === h.id && s.studentId === student.id && (s.status === 'submitted' || s.status === 'marked')
+    );
+    if (isSubmitted) return false;
+
+    // Check if open (not closed by deadline without late submissions allowed)
+    const isPastDue = h.dueDateTime ? new Date(h.dueDateTime).getTime() < nowMs : false;
+    const isClosed = isPastDue && h.allowLate === false;
+    return !isClosed;
+  });
+
+  // Published Quizzes / Exams / Activities for student's classes
+  const relevantActivities = (state.activities || []).filter(
+    a => a.published && a.classIds.some(cId => studentEnrolledClassIds.includes(cId))
+  );
+
+  const pendingActivities = relevantActivities.filter(a => {
+    // Check if student has submitted / completed
+    const isSubmitted = (state.activityAttempts || []).some(
+      att => att.activityId === a.id && att.studentId === student.id && (att.status === 'submitted' || att.status === 'marked' || att.status === 'auto_submitted')
+    );
+    if (isSubmitted) return false;
+
+    // Check if currently open for student (between opensAt and closesAt if defined)
+    const isOpen =
+      (!a.opensAt || new Date(a.opensAt).getTime() <= nowMs) &&
+      (!a.closesAt || new Date(a.closesAt).getTime() >= nowMs);
+    return isOpen;
+  });
+
+  const totalToDo = pendingHomework.length + pendingActivities.length;
+  const activityDisplayValue = totalToDo > 0 ? `${totalToDo} To do` : 'All done';
+
+  // Check unseen activities
+  const allActiveItemIds = [...relevantHomework.map(h => h.id), ...relevantActivities.map(a => a.id)];
+  const [hasUnseenActivity, setHasUnseenActivity] = useState<boolean>(() => {
+    try {
+      if (allActiveItemIds.length === 0) return false;
+      const seenRaw = localStorage.getItem(`seen_activities_${student.id}`);
+      const seenIds: string[] = seenRaw ? JSON.parse(seenRaw) : [];
+      return allActiveItemIds.some(id => !seenIds.includes(id));
+    } catch {
+      return false;
+    }
+  });
+
+  const handleOpenActivity = () => {
+    try {
+      localStorage.setItem(`seen_activities_${student.id}`, JSON.stringify(allActiveItemIds));
+      setHasUnseenActivity(false);
+    } catch {}
+    onNavigateTab('activity');
+  };
 
   // Attendance rate
   const classDuration = currentClassObj?.duration || 60;
@@ -171,19 +243,25 @@ export const StudentDashboardWidgets: React.FC<StudentDashboardWidgetsProps> = (
           <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 mt-1 leading-none">Subject Perf</span>
         </button>
 
-        {/* Campus & Instructor Card */}
+        {/* Activity Card (Replaces Instructor Card) */}
         <button
           type="button"
-          onClick={() => setActiveModal('recent_att')}
-          className="h-[145px] sm:h-[155px] bg-white/90 dark:bg-[#121214]/90 backdrop-blur-xl border border-slate-200/80 dark:border-white/10 rounded-2xl p-3 sm:p-3.5 flex flex-col items-center justify-center text-center transition-all hover:-translate-y-0.5 hover:border-purple-500/50 dark:hover:border-purple-500/50 hover:shadow-md active:scale-95 shadow-xs group cursor-pointer"
+          onClick={handleOpenActivity}
+          className="relative h-[145px] sm:h-[155px] bg-white/90 dark:bg-[#121214]/90 backdrop-blur-xl border border-slate-200/80 dark:border-white/10 rounded-2xl p-3 sm:p-3.5 flex flex-col items-center justify-center text-center transition-all hover:-translate-y-0.5 hover:border-purple-500/50 dark:hover:border-purple-500/50 hover:shadow-md active:scale-95 shadow-xs group cursor-pointer"
         >
-          <div className="w-11 h-11 rounded-2xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
-            <Building className="w-5 h-5" />
+          {hasUnseenActivity && (
+            <span className="absolute top-2.5 right-2.5 flex h-2.5 w-2.5" title="New activity available">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 ring-2 ring-white dark:ring-[#121214]" />
+            </span>
+          )}
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-purple-500/10 to-pink-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+            <Sparkles className="w-5 h-5 text-purple-600 dark:text-purple-400" />
           </div>
           <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white block leading-tight truncate max-w-full">
-            {state.profile.name || 'Teacher'}
+            {activityDisplayValue}
           </span>
-          <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 mt-1 leading-none">Instructor</span>
+          <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 mt-1 leading-none">Activity</span>
         </button>
       </div>
 
@@ -369,33 +447,6 @@ export const StudentDashboardWidgets: React.FC<StudentDashboardWidgetsProps> = (
                   <FileText className="w-4 h-4" />
                   <span>Download Full Report Card</span>
                 </button>
-              </div>
-            )}
-
-            {/* Campus & Instructor Details */}
-            {activeModal === 'recent_att' && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center">
-                    <Building className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">Campus &amp; Instructor</h3>
-                    <p className="text-xs text-slate-500">Official instructor and institutional campus details</p>
-                  </div>
-                </div>
-
-                <div className="space-y-3 pt-2 text-xs">
-                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Official Campus</span>
-                    <span className="text-sm font-bold text-slate-900 dark:text-white block mt-0.5">{state.profile.school || 'Central Academy Campus'}</span>
-                  </div>
-
-                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Instructor In Charge</span>
-                    <span className="text-sm font-bold text-slate-900 dark:text-white block mt-0.5">{state.profile.name || 'Soth Sothea'}</span>
-                  </div>
-                </div>
               </div>
             )}
           </div>

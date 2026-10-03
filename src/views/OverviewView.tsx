@@ -19,6 +19,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { AppState, NavView, StudentItem, AccountRequest } from '../types';
+import { APP_VERSION } from '../constants';
 import { todayISO, attOf, studentsOf, subjectsOf, thisMonth, computeResults } from '../utils/helpers';
 import { provisionStudentAuthAccount, resolveAccountRequest, deleteAccountRequest } from '../utils/firestoreSync';
 
@@ -471,6 +472,13 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Version label */}
+      <div className="text-center pt-3 pb-2 select-none">
+        <span className="text-[10px] text-slate-600/80 dark:text-white/50 font-mono italic tracking-wide">
+          {APP_VERSION}
+        </span>
       </div>
     </div>
   );

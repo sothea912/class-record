@@ -963,6 +963,19 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
     }, 900);
   };
 
+  // Mark activities as seen when student navigates to activity tab
+  React.useEffect(() => {
+    if (activeTab === 'activity' && student) {
+      try {
+        const studentEnrolledClassIds = student.classIds?.length ? student.classIds : (activeClassId ? [activeClassId] : []);
+        const hwIds = (state.homework || []).filter(h => h.published && h.classIds.some(c => studentEnrolledClassIds.includes(c))).map(h => h.id);
+        const actIds = (state.activities || []).filter(a => a.published && a.classIds.some(c => studentEnrolledClassIds.includes(c))).map(a => a.id);
+        const allIds = [...hwIds, ...actIds];
+        localStorage.setItem(`seen_activities_${student.id}`, JSON.stringify(allIds));
+      } catch {}
+    }
+  }, [activeTab, student, activeClassId, state.homework, state.activities]);
+
   // Graceful loading screen state
   const [isLoadingTimeout, setIsLoadingTimeout] = useState<boolean>(false);
 
@@ -1717,98 +1730,85 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
 
             {/* Mobile Floating Pill Tab Bar Navigation (Glassmorphic) */}
             <nav
-              className="lg:hidden fixed left-4 right-4 max-w-lg mx-auto z-[90] bg-white/85 dark:bg-[#0C0C0C]/85 backdrop-blur-xl border border-slate-200/90 dark:border-white/15 rounded-full p-2 sm:p-2.5 shadow-2xl shadow-black/30 flex items-center justify-around gap-1"
+              className="lg:hidden fixed left-3 right-3 sm:left-4 sm:right-4 max-w-lg mx-auto z-[90] bg-white/85 dark:bg-[#0C0C0C]/85 backdrop-blur-xl border border-slate-200/90 dark:border-white/15 rounded-full px-1.5 py-1.5 sm:px-2.5 sm:py-2 shadow-2xl shadow-black/30 flex items-center justify-between gap-0.5 sm:gap-1"
               style={{ bottom: 'calc(1.25rem + env(safe-area-inset-bottom, 0px))' }}
             >
               <button
                 type="button"
                 onClick={() => setActiveTab('overview')}
-                className={`flex flex-col items-center justify-center p-2 rounded-full transition-all shrink-0 active:scale-95 ${
+                className={`flex-1 min-w-0 flex flex-col items-center justify-center py-1 sm:py-1.5 rounded-full transition-all active:scale-95 ${
                   activeTab === 'overview'
-                    ? 'text-[#4BA95F] bg-[#4BA95F]/15 px-2.5 sm:px-3'
+                    ? 'text-[#4BA95F] bg-[#4BA95F]/15 font-black'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                <Activity className="w-4.5 h-4.5" />
-                <span className="text-[9px] font-black mt-0.5 tracking-tight">Home</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab('activity')}
-                className={`flex flex-col items-center justify-center p-2 rounded-full transition-all shrink-0 active:scale-95 ${
-                  activeTab === 'activity'
-                    ? 'text-[#4BA95F] bg-[#4BA95F]/15 px-2.5 sm:px-3'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                <Sparkles className="w-4.5 h-4.5" />
-                <span className="text-[9px] font-black mt-0.5 tracking-tight">Activity</span>
+                <Activity className="w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0" />
+                <span className="text-[9px] font-black mt-0.5 tracking-tight truncate">Home</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setActiveTab('attendance')}
-                className={`flex flex-col items-center justify-center p-2 rounded-full transition-all shrink-0 active:scale-95 ${
+                className={`flex-1 min-w-0 flex flex-col items-center justify-center py-1 sm:py-1.5 rounded-full transition-all active:scale-95 ${
                   activeTab === 'attendance'
-                    ? 'text-[#4BA95F] bg-[#4BA95F]/15 px-3'
+                    ? 'text-[#4BA95F] bg-[#4BA95F]/15 font-black'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                <CalendarCheck className="w-4.5 h-4.5" />
-                <span className="text-[9px] font-black mt-0.5 tracking-tight">Attendance</span>
+                <CalendarCheck className="w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0" />
+                <span className="text-[9px] font-black mt-0.5 tracking-tight truncate">Attendance</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setActiveTab('library')}
-                className={`flex flex-col items-center justify-center p-2 rounded-full transition-all shrink-0 active:scale-95 ${
+                className={`flex-1 min-w-0 flex flex-col items-center justify-center py-1 sm:py-1.5 rounded-full transition-all active:scale-95 ${
                   activeTab === 'library'
-                    ? 'text-[#4BA95F] bg-[#4BA95F]/15 px-3'
+                    ? 'text-[#4BA95F] bg-[#4BA95F]/15 font-black'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                <BookOpen className="w-4.5 h-4.5" />
-                <span className="text-[9px] font-black mt-0.5 tracking-tight">Library</span>
+                <BookOpen className="w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0" />
+                <span className="text-[9px] font-black mt-0.5 tracking-tight truncate">Library</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setActiveTab('classes')}
-                className={`flex flex-col items-center justify-center p-2 rounded-full transition-all shrink-0 active:scale-95 ${
+                className={`flex-1 min-w-0 flex flex-col items-center justify-center py-1 sm:py-1.5 rounded-full transition-all active:scale-95 ${
                   activeTab === 'classes'
-                    ? 'text-[#4BA95F] bg-[#4BA95F]/15 px-3'
+                    ? 'text-[#4BA95F] bg-[#4BA95F]/15 font-black'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                <Layers className="w-4.5 h-4.5" />
-                <span className="text-[9px] font-black mt-0.5 tracking-tight">Classes</span>
+                <Layers className="w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0" />
+                <span className="text-[9px] font-black mt-0.5 tracking-tight truncate">Classes</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setActiveTab('profile')}
-                className={`flex flex-col items-center justify-center p-2 rounded-full transition-all shrink-0 active:scale-95 ${
+                className={`flex-1 min-w-0 flex flex-col items-center justify-center py-1 sm:py-1.5 rounded-full transition-all active:scale-95 ${
                   activeTab === 'profile'
-                    ? 'text-[#4BA95F] bg-[#4BA95F]/15 px-3'
+                    ? 'text-[#4BA95F] bg-[#4BA95F]/15 font-black'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                <User className="w-4.5 h-4.5" />
-                <span className="text-[9px] font-black mt-0.5 tracking-tight">Profile</span>
+                <User className="w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0" />
+                <span className="text-[9px] font-black mt-0.5 tracking-tight truncate">Profile</span>
               </button>
 
               {/* Merged Quick Navigation FAB inside the bottom navigation bar */}
-              <div className="relative shrink-0">
+              <div className="relative shrink-0 ml-0.5 sm:ml-1">
                 <button
                   type="button"
                   onClick={() => setIsQuickNavOpen(prev => !prev)}
-                  className={`w-9 h-9 rounded-full flex items-center justify-center text-white bg-gradient-to-tr from-[#581C87] to-[#3B0764] hover:scale-105 active:scale-95 transition-all cursor-pointer shadow-lg relative ${
+                  className={`w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-white bg-gradient-to-tr from-[#581C87] to-[#3B0764] hover:scale-105 active:scale-95 transition-all cursor-pointer shadow-lg relative ${
                     isQuickNavOpen ? 'rotate-45' : ''
                   }`}
                   title="Quick Actions"
                 >
-                  <Compass className="w-4.5 h-4.5 text-white animate-[spin_10s_linear_infinite]" />
+                  <Compass className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-white animate-[spin_10s_linear_infinite]" />
                   <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-emerald-400 rounded-full border border-white dark:border-[#0C0C0C] animate-pulse" />
                 </button>
               </div>

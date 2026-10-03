@@ -598,3 +598,81 @@ export function formatRequestDateTime(val?: any): string {
 
   return '';
 }
+
+/**
+ * Resize and center-crop image to 16:9 (640x360) JPEG format under 50KB for activity thumbnails
+ */
+export function processThumbnailImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith('image/')) {
+      reject(new Error('Please select a valid image file.'));
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const targetWidth = 640;
+        const targetHeight = 360;
+        const targetAspect = 16 / 9;
+        const sourceAspect = img.width / img.height;
+
+        let srcX = 0;
+        let srcY = 0;
+        let srcW = img.width;
+        let srcH = img.height;
+
+        if (sourceAspect > targetAspect) {
+          srcW = img.height * targetAspect;
+          srcX = (img.width - srcW) / 2;
+        } else {
+          srcH = img.width / targetAspect;
+          srcY = (img.height - srcH) / 2;
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Canvas context not available'));
+          return;
+        }
+
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, targetWidth, targetHeight);
+
+        // Quality 0.72 produces high quality 640x360 image ~30-45KB (under 50KB limit)
+        const base64 = canvas.toDataURL('image/jpeg', 0.72);
+        resolve(base64);
+      };
+      img.onerror = () => reject(new Error('Failed to parse image data'));
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => reject(new Error('Failed to read image file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+export interface DifficultyMeta {
+  level: number;
+  label: string;
+  shortLabel: string;
+  badgeClass: string;
+  stars: string;
+}
+
+export const DIFFICULTY_LEVELS: Record<number, DifficultyMeta> = {
+  1: { level: 1, label: 'Very Easy', shortLabel: 'V. Easy', badgeClass: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/20', stars: '★☆☆☆☆' },
+  2: { level: 2, label: 'Easy', shortLabel: 'Easy', badgeClass: 'bg-teal-500/15 text-teal-600 dark:text-teal-400 border-teal-500/20', stars: '★★☆☆☆' },
+  3: { level: 3, label: 'Medium', shortLabel: 'Medium', badgeClass: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/20', stars: '★★★☆☆' },
+  4: { level: 4, label: 'Hard', shortLabel: 'Hard', badgeClass: 'bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/20', stars: '★★★★☆' },
+  5: { level: 5, label: 'Very Hard', shortLabel: 'V. Hard', badgeClass: 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/20', stars: '★★★★★' },
+};
+
+export const getDifficultyMeta = (diff?: number): DifficultyMeta => {
+  return DIFFICULTY_LEVELS[diff || 3] || DIFFICULTY_LEVELS[3];
+};
+

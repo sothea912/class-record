@@ -47,8 +47,9 @@ import {
   syncSaveActivityAttempt,
   syncFetchActivityQuestions,
 } from '../utils/firestoreSync';
-import { round1, todayISO } from '../utils/helpers';
+import { round1, todayISO, getDifficultyMeta } from '../utils/helpers';
 import { Modal } from '../components/Modal';
+import { ActivityCardThumbnail } from '../components/ActivityCardThumbnail';
 
 interface StudentActivityViewProps {
   state: AppState;
@@ -102,6 +103,11 @@ export const StudentActivityView: React.FC<StudentActivityViewProps> = ({
 
   // Active Homework Modal
   const [selectedHomework, setSelectedHomework] = useState<HomeworkItem | null>(null);
+  const [hwAnswers, setHwAnswers] = useState<Record<string, any>>({});
+  const [hwAttachedFiles, setHwAttachedFiles] = useState<{ name: string; type: string; base64Data?: string; externalLink?: string }[]>([]);
+  const [hwExternalLink, setHwExternalLink] = useState('');
+  const [isSubmittingHw, setIsSubmittingHw] = useState(false);
+  const [downloadingFileId, setDownloadingFileId] = useState<string | null>(null);
 
   // Active Quiz / Exam Runner Modal
   const [activeRunningActivity, setActiveRunningActivity] = useState<ActivityItem | null>(null);
@@ -230,6 +236,148 @@ export const StudentActivityView: React.FC<StudentActivityViewProps> = ({
     return () => clearTimeout(autoSaveTimer);
   }, [runnerAnswers, tabSwitchesCount]);
 
+  // Current Homework submission
+  const currentSubmission = useMemo(() => {
+    if (!selectedHomework) return null;
+    return (state.homeworkSubmissions || []).find(
+      s => s.homeworkId === selectedHomework.id && s.studentId === studentId
+    ) || null;
+  }, [selectedHomework, state.homeworkSubmissions, studentId]);
+
+  // Sync form inputs when selected homework changes
+  useEffect(() => {
+    if (!selectedHomework) {
+      setHwAnswers({});
+      setHwAttachedFiles([]);
+      setHwExternalLink('');
+      return;
+    }
+    if (currentSubmission) {
+      setHwAnswers(currentSubmission.answers || {});
+      setHwAttachedFiles(currentSubmission.files || []);
+      setHwExternalLink(currentSubmission.externalLink || '');
+    } else {
+      setHwAnswers({});
+      setHwAttachedFiles([]);
+      setHwExternalLink('');
+    }
+  }, [selectedHomework, currentSubmission]);
+
+  // Download teacher's attachment
+  const handleDownloadHwAttachment = async (hw: HomeworkItem) => {
+    if (hw.attachmentData) {
+      const link = document.createElement('a');
+      link.href = hw.attachmentData;
+      link.download = hw.attachmentName || `${hw.title}_document`;
+      link.click();
+      return;
+    }
+    if (hw.hasSubcollectionFile && hw.subcollectionFileId) {
+      try {
+        setDownloadingFileId(hw.subcollectionFileId);
+        const fileDoc = await syncFetchHomeworkFile(hw.subcollectionFileId);
+        if (fileDoc?.base64Data) {
+          const link = document.createElement('a');
+          link.href = fileDoc.base64Data;
+          link.download = fileDoc.fileName || `${hw.title}_document`;
+          link.click();
+        } else {
+          onShowToast('Attachment data could not be retrieved.', 'error');
+        }
+      } catch (err: any) {
+        onShowToast('Download failed: ' + (err.message || String(err)), 'error');
+      } finally {
+        setDownloadingFileId(null);
+      }
+    }
+  };
+
+  // Student attaches a file to their submission
+  const handleStudentFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      if (file.type.startsWith('image/')) {
+        const compressed = await compressImageForHomework(file, 1600);
+        setHwAttachedFiles(prev => [...prev, { name: file.name, type: file.type, base64Data: compressed }]);
+        onShowToast('Image attached', 'success');
+      } else {
+        if (file.size > 700 * 1024) {
+          onShowToast('File exceeds 700KB. For larger files, please share a Google Drive or Telegram link.', 'error');
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+          setHwAttachedFiles(prev => [...prev, { name: file.name, type: file.type, base64Data: reader.result as string }]);
+          onShowToast('File attached', 'success');
+        };
+        reader.readAsDataURL(file);
+      }
+    } catch (err: any) {
+      onShowToast('Failed to attach file: ' + err.message, 'error');
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  // Student submits homework
+  const handleSubmitHomework = async () => {
+    if (!selectedHomework) return;
+    const isOverdue = formatTimeRemaining(selectedHomework.dueDateTime).isOverdue;
+    if (isOverdue && selectedHomework.allowLate === false) {
+      onShowToast('This homework is past its deadline and does not accept late submissions.', 'error');
+      return;
+    }
+
+    // Required questions validation for form type
+    if (selectedHomework.type === 'form' && selectedHomework.questions) {
+      for (const q of selectedHomework.questions) {
+        if (q.required) {
+          const val = hwAnswers[q.id];
+          const isAnswered = Array.isArray(val) ? val.length > 0 : (val !== undefined && val !== null && String(val).trim() !== '');
+          if (!isAnswered) {
+            onShowToast(`Please answer required question: "${q.title}"`, 'error');
+            return;
+          }
+        }
+      }
+    }
+
+    // If upload type, require at least one file or external link
+    if (selectedHomework.type === 'upload' && hwAttachedFiles.length === 0 && !hwExternalLink.trim()) {
+      onShowToast('Please attach at least one file or provide a link to your work.', 'error');
+      return;
+    }
+
+    try {
+      setIsSubmittingHw(true);
+      const subId = `${selectedHomework.id}_${studentId}`;
+      const nowISO = new Date().toISOString();
+      const submissionObj: HomeworkSubmission = {
+        id: subId,
+        homeworkId: selectedHomework.id,
+        studentId: studentId,
+        classId: activeClassId || selectedHomework.classIds[0],
+        status: isOverdue ? 'late' : 'submitted',
+        isLate: isOverdue,
+        submittedAt: nowISO,
+        answers: selectedHomework.type === 'form' ? hwAnswers : undefined,
+        files: hwAttachedFiles,
+        externalLink: hwExternalLink.trim() || undefined,
+        createdAt: currentSubmission?.createdAt || nowISO,
+        updatedAt: nowISO,
+      };
+
+      await syncSaveHomeworkSubmission(submissionObj, student.name, selectedHomework.title);
+      onShowToast(isOverdue ? 'Homework submitted (late).' : 'Homework submitted successfully! Great job.', 'success');
+      setSelectedHomework(null);
+    } catch (err: any) {
+      onShowToast('Failed to submit: ' + (err.message || String(err)), 'error');
+    } finally {
+      setIsSubmittingHw(false);
+    }
+  };
+
   // Start Quiz / Exam Attempt
   const handleStartAttempt = async (activity: ActivityItem) => {
     setConfirmStartActivity(null);
@@ -256,7 +404,10 @@ export const StudentActivityView: React.FC<StudentActivityViewProps> = ({
 
     try {
       await syncSaveActivityAttempt(newAttempt);
-      const qList = await syncFetchActivityQuestions(activity.id) || activity.questions || [];
+      let qList = await syncFetchActivityQuestions(activity.id);
+      if (!qList || qList.length === 0) {
+        qList = activity.questions || [];
+      }
       setActivityQuestions(qList);
       setActiveAttempt(newAttempt);
       setRunnerAnswers({});
@@ -268,7 +419,8 @@ export const StudentActivityView: React.FC<StudentActivityViewProps> = ({
       setActiveRunningActivity(activity);
       onShowToast(`Started ${activity.title}. Timer is running!`, 'success');
     } catch (err: any) {
-      onShowToast('Failed to start: ' + err.message, 'error');
+      console.error('Failed to start attempt:', err);
+      onShowToast('Failed to start: ' + (err.message || String(err)), 'error');
     }
   };
 

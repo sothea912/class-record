@@ -81,8 +81,9 @@ import {
   syncUpdateStudentExamTime,
   syncReleaseActivityResults,
 } from '../utils/firestoreSync';
-import { uid, round1, studentsOf, thisMonth, todayISO } from '../utils/helpers';
+import { uid, round1, studentsOf, thisMonth, todayISO, processThumbnailImage, getDifficultyMeta, DIFFICULTY_LEVELS } from '../utils/helpers';
 import { Modal } from '../components/Modal';
+import { ActivityCardThumbnail } from '../components/ActivityCardThumbnail';
 
 interface TeacherActivityViewProps {
   state: AppState;
@@ -150,6 +151,9 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
   const [itemScoringColumn, setItemScoringColumn] = useState<'homework' | 'quiz' | 'exam' | 'participation'>('participation');
   const [itemBadgesEnabled, setItemBadgesEnabled] = useState(true);
   const [itemPublished, setItemPublished] = useState(true);
+  const [itemThumbnail, setItemThumbnail] = useState<string | undefined>();
+  const [itemDifficulty, setItemDifficulty] = useState<number>(3); // 1 to 5, default 3 (Medium)
+  const [isProcessingThumbnail, setIsProcessingThumbnail] = useState(false);
 
   // Upload attachments
   const [attachmentData, setAttachmentData] = useState<string | undefined>();
@@ -256,6 +260,8 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
     setItemScoringColumn(kind === 'quiz' ? 'quiz' : kind === 'exam' ? 'exam' : 'participation');
     setItemBadgesEnabled(true);
     setItemPublished(true);
+    setItemThumbnail(undefined);
+    setItemDifficulty(3);
     setAttachmentData(undefined);
     setAttachmentName(undefined);
     setAttachmentType(undefined);
@@ -279,6 +285,24 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
       { id: 'sec_2', title: 'Part 2: Grammar & Writing', instructions: 'Answer in complete sentences.' },
     ]);
     setIsCreateModalOpen(true);
+  };
+
+  // Thumbnail file upload and 16:9 crop handler
+  const handleThumbnailUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setIsProcessingThumbnail(true);
+      const base64 = await processThumbnailImage(file);
+      setItemThumbnail(base64);
+      onShowToast('Thumbnail cropped to 16:9 (640x360) and saved', 'success');
+    } catch (err: any) {
+      onShowToast(err.message || 'Failed to process thumbnail', 'error');
+    } finally {
+      setIsProcessingThumbnail(false);
+      // Reset input value so same file can be re-uploaded if replaced
+      e.target.value = '';
+    }
   };
 
   // Open Edit for existing item
@@ -306,6 +330,8 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
     setItemScoringColumn((item as any).scoringColumn || 'participation');
     setItemBadgesEnabled((item as any).badgesEnabled !== false);
     setItemPublished(item.published !== false);
+    setItemThumbnail(item.thumbnail);
+    setItemDifficulty(item.difficulty || 3);
     setAttachmentData(item.attachmentData);
     setAttachmentName(item.attachmentName);
     setAttachmentType(item.attachmentType);
@@ -355,6 +381,8 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
     setItemScoringColumn((source as any).scoringColumn || 'participation');
     setItemBadgesEnabled((source as any).badgesEnabled !== false);
     setItemPublished(false); // Default draft for cloned
+    setItemThumbnail(source.thumbnail);
+    setItemDifficulty(source.difficulty || 3);
     setAttachmentData(source.attachmentData);
     setAttachmentName(source.attachmentName);
     setAttachmentType(source.attachmentType);
@@ -574,6 +602,8 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
           maxScore: calculatedMax || 100,
           allowLate: itemAllowLate,
           published: itemPublished,
+          thumbnail: itemThumbnail,
+          difficulty: itemDifficulty,
           attachmentName: attachmentName,
           attachmentType: attachmentType,
           attachmentData: attachmentData,
@@ -617,6 +647,8 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
           activityTypeLabel: itemActivityTypeLabel,
           scoringColumn: itemScoringColumn,
           badgesEnabled: itemBadgesEnabled,
+          thumbnail: itemThumbnail,
+          difficulty: itemDifficulty,
           attachmentName,
           attachmentType,
           attachmentData,
@@ -1198,6 +1230,13 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
                   key={hw.id}
                   className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-4"
                 >
+                  <ActivityCardThumbnail
+                    thumbnail={hw.thumbnail}
+                    kind="homework"
+                    difficulty={hw.difficulty}
+                    label={hw.type === 'form' ? 'Interactive Form' : 'Document'}
+                  />
+
                   <div className="space-y-3">
                     <div className="flex items-start justify-between gap-2">
                       <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300">
@@ -1278,6 +1317,13 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
                   key={quiz.id}
                   className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-4"
                 >
+                  <ActivityCardThumbnail
+                    thumbnail={quiz.thumbnail}
+                    kind="quiz"
+                    difficulty={quiz.difficulty}
+                    label="Quiz"
+                  />
+
                   <div className="space-y-3">
                     <div className="flex items-start justify-between gap-2">
                       <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 flex items-center gap-1">
@@ -1364,6 +1410,13 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
                   key={exam.id}
                   className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-4"
                 >
+                  <ActivityCardThumbnail
+                    thumbnail={exam.thumbnail}
+                    kind="exam"
+                    difficulty={exam.difficulty}
+                    label="Final Exam"
+                  />
+
                   <div className="space-y-3">
                     <div className="flex items-start justify-between gap-2">
                       <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 flex items-center gap-1">
@@ -1469,6 +1522,13 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
                   key={act.id}
                   className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-4"
                 >
+                  <ActivityCardThumbnail
+                    thumbnail={act.thumbnail}
+                    kind="custom"
+                    difficulty={act.difficulty}
+                    label={act.activityTypeLabel || 'Task'}
+                  />
+
                   <div className="space-y-3">
                     <div className="flex items-start justify-between gap-2">
                       <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
@@ -1785,6 +1845,117 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
                     />
                   </div>
                 )}
+              </div>
+
+              {/* Activity Thumbnail & Difficulty Level Configuration */}
+              <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                {/* 16:9 Thumbnail Builder */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Thumbnail Image (16:9)
+                    </label>
+                    {itemThumbnail && (
+                      <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">Custom 16:9 set</span>
+                    )}
+                  </div>
+
+                  {itemThumbnail ? (
+                    <div className="space-y-2">
+                      <div className="relative aspect-video rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-900 group shadow-sm">
+                        <img src={itemThumbnail} alt="Thumbnail preview" className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                          <label className="px-3 py-1.5 rounded-lg bg-white/95 text-slate-800 text-xs font-bold cursor-pointer hover:bg-white flex items-center gap-1 shadow">
+                            <Upload className="w-3.5 h-3.5 text-purple-600" />
+                            <span>Replace</span>
+                            <input type="file" accept="image/*" onChange={handleThumbnailUpload} className="hidden" />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setItemThumbnail(undefined)}
+                            className="px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-bold hover:bg-rose-500 flex items-center gap-1 shadow cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Remove</span>
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        <label className="font-bold text-purple-600 hover:text-purple-500 cursor-pointer inline-flex items-center gap-1">
+                          <Upload className="w-3 h-3" />
+                          <span>Replace</span>
+                          <input type="file" accept="image/*" onChange={handleThumbnailUpload} className="hidden" />
+                        </label>
+                        <span className="text-slate-300 dark:text-slate-700">&middot;</span>
+                        <button
+                          type="button"
+                          onClick={() => setItemThumbnail(undefined)}
+                          className="font-bold text-rose-500 hover:text-rose-600 cursor-pointer"
+                        >
+                          Remove (Use Default)
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="relative aspect-video rounded-xl overflow-hidden border border-dashed border-slate-300 dark:border-slate-700 flex flex-col items-center justify-center p-3 text-center transition-all bg-white dark:bg-slate-900/40">
+                      <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center mb-1">
+                        <ImageIcon className="w-5 h-5" />
+                      </div>
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-300">No Custom Thumbnail</span>
+                      <span className="text-[10px] text-slate-400 mb-2">Default {createKind} banner will be shown</span>
+                      <label className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-sm">
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>{isProcessingThumbnail ? 'Processing...' : 'Set Thumbnail'}</span>
+                        <input type="file" accept="image/*" onChange={handleThumbnailUpload} className="hidden" disabled={isProcessingThumbnail} />
+                      </label>
+                    </div>
+                  )}
+                </div>
+
+                {/* Difficulty Rating (1 to 5) */}
+                <div className="space-y-2 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                        Difficulty Rating (1 to 5)
+                      </label>
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${getDifficultyMeta(itemDifficulty).badgeClass}`}>
+                        {getDifficultyMeta(itemDifficulty).stars} {getDifficultyMeta(itemDifficulty).label}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Indicates challenge level to students (from beginner to advanced exam prep).
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-5 gap-1.5 pt-2">
+                    {[1, 2, 3, 4, 5].map((lvl) => {
+                      const meta = DIFFICULTY_LEVELS[lvl];
+                      const isSelected = itemDifficulty === lvl;
+                      return (
+                        <button
+                          key={lvl}
+                          type="button"
+                          onClick={() => setItemDifficulty(lvl)}
+                          className={`py-2 px-1 rounded-xl text-center border transition-all cursor-pointer flex flex-col items-center justify-center ${
+                            isSelected
+                              ? `${meta.badgeClass} ring-2 ring-purple-500/50 font-black shadow-xs scale-102`
+                              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300 font-semibold'
+                          }`}
+                        >
+                          <span className="text-xs font-black">{lvl}</span>
+                          <span className="text-[9px] leading-tight truncate w-full text-center mt-0.5">{meta.shortLabel}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="text-[10px] text-slate-400 flex items-center justify-between px-1">
+                    <span>1 = Very Easy</span>
+                    <span>3 = Medium</span>
+                    <span>5 = Very Hard</span>
+                  </div>
+                </div>
               </div>
             </div>
 

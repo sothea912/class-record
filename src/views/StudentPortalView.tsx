@@ -517,6 +517,46 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
 
   const hasUnread = unreadPerms.length > 0;
 
+  // Real-time count of activities that need action (Homework, Quizzes, Exams open & not yet submitted)
+  const activityToDoCount = useMemo(() => {
+    if (!student) return 0;
+    const studentEnrolledClassIds = student.classIds?.length
+      ? student.classIds
+      : (activeClassId ? [activeClassId] : []);
+    const nowMs = Date.now();
+
+    // 1. Published Homework
+    const relevantHomework = (state.homework || []).filter(
+      h => h.published && h.classIds.some(cId => studentEnrolledClassIds.includes(cId))
+    );
+    const pendingHomework = relevantHomework.filter(h => {
+      const isSubmitted = (state.homeworkSubmissions || []).some(
+        s => s.homeworkId === h.id && s.studentId === student.id && (s.status === 'submitted' || s.status === 'marked')
+      );
+      if (isSubmitted) return false;
+      const isPastDue = h.dueDateTime ? new Date(h.dueDateTime).getTime() < nowMs : false;
+      const isClosed = isPastDue && h.allowLate === false;
+      return !isClosed;
+    });
+
+    // 2. Published Activities (Quiz, Exam, Custom)
+    const relevantActivities = (state.activities || []).filter(
+      a => a.published && a.classIds.some(cId => studentEnrolledClassIds.includes(cId))
+    );
+    const pendingActivities = relevantActivities.filter(a => {
+      const isSubmitted = (state.activityAttempts || []).some(
+        att => att.activityId === a.id && att.studentId === student.id && (att.status === 'submitted' || att.status === 'marked' || att.status === 'auto_submitted')
+      );
+      if (isSubmitted) return false;
+      const isOpen =
+        (!a.opensAt || new Date(a.opensAt).getTime() <= nowMs) &&
+        (!a.closesAt || new Date(a.closesAt).getTime() >= nowMs);
+      return isOpen;
+    });
+
+    return pendingHomework.length + pendingActivities.length;
+  }, [state.homework, state.homeworkSubmissions, state.activities, state.activityAttempts, student, activeClassId]);
+
   const [dismissedNoticeIds, setDismissedNoticeIds] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem(`dismissed_notices_${studentId}`);
@@ -1577,9 +1617,17 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                         <Icon className={`w-4.5 h-4.5 ${isActive ? 'text-[#4BA95F]' : 'text-slate-400 dark:text-slate-500'}`} />
                         <span>{item.label}</span>
                       </div>
-                      {isActive && (
-                        <span className="w-1.5 h-4 rounded-full bg-[#4BA95F]" />
-                      )}
+                      <div className="flex items-center gap-2">
+                        {item.id === 'activity' && activityToDoCount > 0 && (
+                          <span
+                            className="w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white dark:ring-[#141414] shadow-xs animate-dot-pulse shrink-0"
+                            title={`${activityToDoCount} to do`}
+                          />
+                        )}
+                        {isActive && (
+                          <span className="w-1.5 h-4 rounded-full bg-[#4BA95F]" />
+                        )}
+                      </div>
                     </button>
                   );
                 })}
@@ -1682,12 +1730,20 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                   <button
                     type="button"
                     onClick={() => { setActiveTab('activity'); setIsQuickNavOpen(false); }}
-                    className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left font-bold text-slate-800 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/10 active:scale-[0.98] transition-all cursor-pointer"
+                    className="w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-left font-bold text-slate-800 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/10 active:scale-[0.98] transition-all cursor-pointer"
                   >
-                    <div className="w-7 h-7 rounded-lg bg-purple-500/15 text-purple-500 flex items-center justify-center shrink-0">
-                      <Sparkles className="w-4 h-4" />
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-7 h-7 rounded-lg bg-purple-500/15 text-purple-500 flex items-center justify-center shrink-0">
+                        <Sparkles className="w-4 h-4" />
+                      </div>
+                      <span className="truncate">Class Activity</span>
                     </div>
-                    <span className="truncate">Class Activity</span>
+                    {activityToDoCount > 0 && (
+                      <span
+                        className="w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white dark:ring-[#161618] shadow-xs animate-dot-pulse shrink-0 ml-2"
+                        title={`${activityToDoCount} to do`}
+                      />
+                    )}
                   </button>
 
                   <button
@@ -1925,6 +1981,7 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                   state={state}
                   student={student}
                   currentClassObj={currentClassObj}
+                  activityToDoCount={activityToDoCount}
                   onOpenLeaveRequestForm={() => setIsLeaveFormOpen(true)}
                   onOpenLeaveResults={() => setIsLeaveResultsOpen(true)}
                   onOpenResourceLibrary={() => setActiveTab('library')}

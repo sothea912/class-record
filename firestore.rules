@@ -29,13 +29,23 @@ service cloud.firestore {
     function isStudent(studentId) {
       return isSignedIn() && (
         request.auth.uid == studentId
+        || (request.auth.token.email != null && request.auth.token.email == studentId + '@centralacademy.app')
         || (exists(/databases/$(database)/documents/users/$(request.auth.uid))
             && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.studentId == studentId)
+        || (exists(/databases/$(database)/documents/students/$(studentId))
+            && (
+              get(/databases/$(database)/documents/students/$(studentId)).data.authUid == request.auth.uid
+              || (get(/databases/$(database)/documents/students/$(studentId)).data.authEmail != null
+                  && get(/databases/$(database)/documents/students/$(studentId)).data.authEmail == request.auth.token.email)
+              || (get(/databases/$(database)/documents/students/$(studentId)).data.studentNo != null
+                  && request.auth.token.email == get(/databases/$(database)/documents/students/$(studentId)).data.studentNo + '@centralacademy.app')
+            ))
         || (resource != null && resource.data != null && (
           resource.data.authUid == request.auth.uid
           || (resource.data.authEmail != null && resource.data.authEmail == request.auth.token.email)
           || (resource.data.studentNo != null && request.auth.token.email == resource.data.studentNo + '@centralacademy.app')
           || (resource.data.id != null && request.auth.token.email == resource.data.id + '@centralacademy.app')
+          || (resource.data.studentId != null && resource.data.studentId == studentId)
         ))
       );
     }
@@ -250,7 +260,12 @@ service cloud.firestore {
       // Questions subcollection: read by teacher OR signed-in student who has started an attempt
       match /questions/{qDocId} {
         allow read: if isTeacher()
-          || (isSignedIn() && exists(/databases/$(database)/documents/activity_attempts/$(activityId + '_' + (exists(/databases/$(database)/documents/users/$(request.auth.uid)) ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.studentId : request.auth.uid))));
+          || (isSignedIn() && (
+            exists(/databases/$(database)/documents/activity_attempts/$(activityId + '_' + request.auth.uid))
+            || (request.auth.token.email != null && exists(/databases/$(database)/documents/activity_attempts/$(activityId + '_' + request.auth.token.email.split('@')[0])))
+            || (exists(/databases/$(database)/documents/users/$(request.auth.uid))
+                && exists(/databases/$(database)/documents/activity_attempts/$(activityId + '_' + get(/databases/$(database)/documents/users/$(request.auth.uid)).data.studentId)))
+          ));
         allow create, update, delete: if isTeacher();
       }
 

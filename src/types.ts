@@ -299,6 +299,8 @@ export interface ActivityItem {
   questions?: HomeworkQuestion[];
   published: boolean;
   badgesEnabled?: boolean;
+  thumbnail?: string; // Base64 640x360 JPEG under 50KB
+  difficulty?: number; // 1 to 5 (1=Very easy, 2=Easy, 3=Medium, 4=Hard, 5=Very hard)
   createdAt: string;
   updatedAt: string;
 }
@@ -365,6 +367,8 @@ export interface HomeworkItem {
   externalLink?: string; // Link to Google Drive / Telegram
   hasSubcollectionFile?: boolean;
   subcollectionFileId?: string;
+  thumbnail?: string; // Base64 640x360 JPEG under 50KB
+  difficulty?: number; // 1 to 5 (1=Very easy, 2=Easy, 3=Medium, 4=Hard, 5=Very hard)
   questions?: HomeworkQuestion[];
 }
 

@@ -46,6 +46,7 @@ interface StudentDashboardWidgetsProps {
   state: AppState;
   student: StudentItem;
   currentClassObj?: ClassItem;
+  activityToDoCount?: number;
   onOpenLeaveRequestForm: () => void;
   onOpenLeaveResults: () => void;
   onOpenResourceLibrary: () => void;
@@ -58,6 +59,7 @@ export const StudentDashboardWidgets: React.FC<StudentDashboardWidgetsProps> = (
   state,
   student,
   currentClassObj,
+  activityToDoCount,
   onOpenLeaveRequestForm,
   onOpenLeaveResults,
   onOpenResourceLibrary,
@@ -123,26 +125,10 @@ export const StudentDashboardWidgets: React.FC<StudentDashboardWidgetsProps> = (
   });
 
   const totalToDo = pendingHomework.length + pendingActivities.length;
-  const activityDisplayValue = totalToDo > 0 ? `${totalToDo} To do` : 'All done';
-
-  // Check unseen activities
-  const allActiveItemIds = [...relevantHomework.map(h => h.id), ...relevantActivities.map(a => a.id)];
-  const [hasUnseenActivity, setHasUnseenActivity] = useState<boolean>(() => {
-    try {
-      if (allActiveItemIds.length === 0) return false;
-      const seenRaw = localStorage.getItem(`seen_activities_${student.id}`);
-      const seenIds: string[] = seenRaw ? JSON.parse(seenRaw) : [];
-      return allActiveItemIds.some(id => !seenIds.includes(id));
-    } catch {
-      return false;
-    }
-  });
+  const resolvedToDo = activityToDoCount !== undefined ? activityToDoCount : totalToDo;
+  const activityDisplayValue = resolvedToDo > 0 ? `${resolvedToDo} To do` : 'All done';
 
   const handleOpenActivity = () => {
-    try {
-      localStorage.setItem(`seen_activities_${student.id}`, JSON.stringify(allActiveItemIds));
-      setHasUnseenActivity(false);
-    } catch {}
     onNavigateTab('activity');
   };
 
@@ -249,10 +235,13 @@ export const StudentDashboardWidgets: React.FC<StudentDashboardWidgetsProps> = (
           onClick={handleOpenActivity}
           className="relative h-[145px] sm:h-[155px] bg-white/90 dark:bg-[#121214]/90 backdrop-blur-xl border border-slate-200/80 dark:border-white/10 rounded-2xl p-3 sm:p-3.5 flex flex-col items-center justify-center text-center transition-all hover:-translate-y-0.5 hover:border-purple-500/50 dark:hover:border-purple-500/50 hover:shadow-md active:scale-95 shadow-xs group cursor-pointer"
         >
-          {hasUnseenActivity && (
-            <span className="absolute top-2.5 right-2.5 flex h-2.5 w-2.5" title="New activity available">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 ring-2 ring-white dark:ring-[#121214]" />
+          {resolvedToDo > 0 && (
+            <span
+              className="absolute top-2.5 right-2.5 flex h-2.5 w-2.5"
+              title={`${resolvedToDo} to do`}
+              aria-label="Activity action needed"
+            >
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 ring-2 ring-white dark:ring-[#121214] shadow-xs animate-dot-pulse" />
             </span>
           )}
           <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-purple-500/10 to-pink-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">

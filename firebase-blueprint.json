@@ -254,9 +254,32 @@
         "opensAt": { "type": "string", "maxLength": 60 },
         "closesAt": { "type": "string", "maxLength": 60 },
         "durationMinutes": { "type": "number" },
+        "thumbnail": { "type": "string", "maxLength": 70000 },
+        "difficulty": { "type": "number" },
         "createdAt": { "type": "string", "maxLength": 60 }
       },
       "required": ["id", "kind", "title", "maxScore"]
+    },
+    "HomeworkItem": {
+      "title": "HomeworkItem",
+      "description": "Class Activity homework tasks with instructions, files and question forms",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "instructions": { "type": "string", "maxLength": 5000 },
+        "type": { "type": "string", "maxLength": 20 },
+        "classIds": { "type": "array" },
+        "dueDateTime": { "type": "string", "maxLength": 60 },
+        "maxScore": { "type": "number" },
+        "allowLate": { "type": "boolean" },
+        "published": { "type": "boolean" },
+        "thumbnail": { "type": "string", "maxLength": 70000 },
+        "difficulty": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 60 },
+        "updatedAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": ["id", "title", "type", "maxScore", "dueDateTime"]
     },
     "ActivityAttempt": {
       "title": "ActivityAttempt",

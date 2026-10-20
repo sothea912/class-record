@@ -40,6 +40,7 @@ const VIEW_TITLES: Record<NavView, { title: string; subtitle: string }> = {
   import: { title: 'Dedicated JSON File Import', subtitle: 'Upload JSON files to update classes, student rosters, marks, or store custom data' },
   profile: { title: 'Instructor Profile & School', subtitle: 'Manage official school heading, timetable & certificates' },
   adventure: { title: 'Adventurer Mode (Gamification)', subtitle: 'Track and reward student engagement, levels, XP & streaks' },
+  games: { title: 'Games', subtitle: 'Live Cohost interactive quiz games, multiplayer lobbies & scoreboards' },
 };
 
 export const TopBar: React.FC<TopBarProps> = ({

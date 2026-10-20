@@ -24,6 +24,7 @@ import {
   ChevronDown,
   Pin,
   FileText,
+  Gamepad2,
 } from 'lucide-react';
 import { NavView, UserProfile } from '../types';
 import { APP_VERSION } from '../constants';
@@ -180,6 +181,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Marks & Ranking',
       items: [
         { id: 'activity' as NavView, label: 'Class Activity', icon: FileText, badge: unreadHomeworkCount },
+        { id: 'games' as NavView, label: 'Games', icon: Gamepad2 },
         { id: 'subjects' as NavView, label: 'Subjects & Exams', icon: FilePenLine },
         { id: 'classwork' as NavView, label: 'Classwork', icon: Sparkles },
         { id: 'results' as NavView, label: 'Class Ranking', icon: Trophy },
@@ -200,6 +202,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     notices: 'Attendance',
     adventure: 'Attendance',
     activity: 'Marks & Ranking',
+    games: 'Marks & Ranking',
     subjects: 'Marks & Ranking',
     classwork: 'Marks & Ranking',
     results: 'Marks & Ranking',

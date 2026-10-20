@@ -25,6 +25,8 @@ export const EMPTY_APP_STATE: AppState = {
   classwork: [],
   studentPermissions: [],
   customRecords: [],
+  projects: [],
+  projectResults: [],
   banners: [
     {
       id: 'ban_1',
@@ -197,6 +199,8 @@ export function loadStoredState(): AppState {
       classwork: Array.isArray(parsed.classwork) ? parsed.classwork : [],
       studentPermissions: Array.isArray(parsed.studentPermissions) ? parsed.studentPermissions : [],
       customRecords: Array.isArray(parsed.customRecords) ? parsed.customRecords : [],
+      projects: Array.isArray(parsed.projects) ? parsed.projects : [],
+      projectResults: Array.isArray(parsed.projectResults) ? parsed.projectResults : [],
       banners: Array.isArray(parsed.banners) && parsed.banners.length > 0 ? parsed.banners : EMPTY_APP_STATE.banners,
       resources: Array.isArray(parsed.resources) && parsed.resources.length > 0 ? parsed.resources : EMPTY_APP_STATE.resources,
     };

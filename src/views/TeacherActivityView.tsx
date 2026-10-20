@@ -43,6 +43,8 @@ import {
   Lock,
   Timer,
   FileSpreadsheet,
+  FolderKanban,
+  Presentation,
 } from 'lucide-react';
 import {
   AppState,
@@ -62,6 +64,8 @@ import {
   StudentItem,
   ClassworkType,
   SubmissionFileDoc,
+  ProjectItem,
+  ProjectResult,
 } from '../types';
 import {
   syncSaveHomework,
@@ -84,10 +88,16 @@ import {
   syncDeleteActivityAttempt,
   syncUpdateStudentExamTime,
   syncReleaseActivityResults,
+  syncSaveProject,
+  syncDeleteProject,
+  syncBatchSaveProjectResults,
+  syncPublishProject,
 } from '../utils/firestoreSync';
 import { uid, round1, studentsOf, thisMonth, todayISO, processThumbnailImage, getDifficultyMeta, DIFFICULTY_LEVELS } from '../utils/helpers';
 import { Modal } from '../components/Modal';
 import { ActivityCardThumbnail } from '../components/ActivityCardThumbnail';
+import { ProjectFormModal } from '../components/ProjectFormModal';
+import { ProjectGradingSheetModal } from '../components/ProjectGradingSheetModal';
 
 interface TeacherActivityViewProps {
   state: AppState;
@@ -110,11 +120,16 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
   onSelectClassId,
   onShowToast,
 }) => {
-  // Top 4 Section Tabs
-  const [activeSection, setActiveSection] = useState<'homework' | 'quizzes' | 'achievement' | 'custom'>('homework');
+  // 5 Section Tabs (Homework, Quizzes, Achievement, Activities, Projects)
+  const [activeSection, setActiveSection] = useState<'homework' | 'quizzes' | 'achievement' | 'custom' | 'projects'>('homework');
 
   // New Activity Dropdown menu state
   const [isNewMenuOpen, setIsNewMenuOpen] = useState(false);
+
+  // Project Modals & Active Project states
+  const [isCreateProjectModalOpen, setIsCreateProjectModalOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState<ProjectItem | null>(null);
+  const [gradingProjectId, setGradingProjectId] = useState<string | null>(null);
 
   // Active activity/homework for Submissions / Grading view
   const [gradingHomeworkId, setGradingHomeworkId] = useState<string | null>(null);
@@ -214,6 +229,13 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
   const activitiesList = state.activities || [];
   const attemptsList = state.activityAttempts || [];
 
+  // Projects list filtered by selectedClassId
+  const projectsList = useMemo(() => {
+    const list = state.projects || [];
+    if (!selectedClassId || selectedClassId === 'all') return list;
+    return list.filter(p => p.classId === selectedClassId);
+  }, [state.projects, selectedClassId]);
+
   // Active items for grading
   const currentGradingHw = useMemo(() => {
     if (!gradingHomeworkId) return null;
@@ -224,6 +246,11 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
     if (!gradingActivityId) return null;
     return activitiesList.find(a => a.id === gradingActivityId) || null;
   }, [gradingActivityId, activitiesList]);
+
+  const activeGradingProject = useMemo(() => {
+    if (!gradingProjectId) return null;
+    return (state.projects || []).find(p => p.id === gradingProjectId) || null;
+  }, [gradingProjectId, state.projects]);
 
   const analyticsActivity = useMemo(() => {
     if (!analyticsActivityId) return null;
@@ -933,6 +960,8 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
     try {
       if (deleteConfirmItem.kind === 'homework') {
         await syncDeleteHomework(deleteConfirmItem.id);
+      } else if (deleteConfirmItem.kind === 'project') {
+        await syncDeleteProject(deleteConfirmItem.id);
       } else {
         await syncDeleteActivity(deleteConfirmItem.id, deleteConfirmItem.kind as ActivityKind);
       }
@@ -940,6 +969,7 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
       setDeleteConfirmItem(null);
       setGradingHomeworkId(null);
       setGradingActivityId(null);
+      setGradingProjectId(null);
     } catch (err: any) {
       onShowToast('Failed to delete: ' + err.message, 'error');
     }
@@ -1122,6 +1152,23 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
                     <span className="text-[10px] text-slate-400 font-normal">Speaking, project, discussion</span>
                   </div>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsNewMenuOpen(false);
+                    setActiveSection('projects');
+                    setEditingProject(null);
+                    setIsCreateProjectModalOpen(true);
+                  }}
+                  className="w-full px-4 py-2.5 text-left text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-purple-50 dark:hover:bg-purple-950/40 flex items-center gap-2.5"
+                >
+                  <FolderKanban className="w-4 h-4 text-purple-600" />
+                  <div>
+                    <span className="block font-bold">Presentation Project</span>
+                    <span className="text-[10px] text-slate-400 font-normal">Custom rubric criteria & speaking score sheet</span>
+                  </div>
+                </button>
                 <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
                 <button
                   type="button"
@@ -1139,7 +1186,7 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
           </div>
         </div>
 
-        {/* 4 Section Navigation Tabs */}
+        {/* 5 Section Navigation Tabs */}
         <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
           <button
             type="button"
@@ -1147,6 +1194,7 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
               setActiveSection('homework');
               setGradingHomeworkId(null);
               setGradingActivityId(null);
+              setGradingProjectId(null);
             }}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
               activeSection === 'homework'
@@ -1167,6 +1215,7 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
               setActiveSection('quizzes');
               setGradingHomeworkId(null);
               setGradingActivityId(null);
+              setGradingProjectId(null);
             }}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
               activeSection === 'quizzes'
@@ -1187,6 +1236,7 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
               setActiveSection('achievement');
               setGradingHomeworkId(null);
               setGradingActivityId(null);
+              setGradingProjectId(null);
             }}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
               activeSection === 'achievement'
@@ -1207,6 +1257,7 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
               setActiveSection('custom');
               setGradingHomeworkId(null);
               setGradingActivityId(null);
+              setGradingProjectId(null);
             }}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
               activeSection === 'custom'
@@ -1218,6 +1269,27 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
             <span>Activities</span>
             <span className="px-1.5 py-0.2 text-[10px] rounded-full bg-white/20 font-black">
               {activitiesList.filter(a => a.kind === 'custom').length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveSection('projects');
+              setGradingHomeworkId(null);
+              setGradingActivityId(null);
+              setGradingProjectId(null);
+            }}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeSection === 'projects'
+                ? 'bg-purple-600 text-white shadow-sm'
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <FolderKanban className="w-4 h-4" />
+            <span>Projects</span>
+            <span className="px-1.5 py-0.2 text-[10px] rounded-full bg-white/20 font-black">
+              {projectsList.length}
             </span>
           </button>
         </div>
@@ -1603,6 +1675,137 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* E. PROJECTS SECTION */}
+      {activeSection === 'projects' && !currentGradingHw && !currentGradingAct && (
+        <div className="space-y-4">
+          {projectsList.length === 0 ? (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-12 text-center space-y-4 shadow-sm">
+              <div className="w-16 h-16 rounded-3xl bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 flex items-center justify-center mx-auto shadow-sm">
+                <FolderKanban className="w-8 h-8" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
+                  No projects yet
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
+                  Create your first presentation project to grade student presentations with custom rubric criteria.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingProject(null);
+                  setIsCreateProjectModalOpen(true);
+                }}
+                className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-md shadow-purple-600/20 active:scale-95 transition-all inline-flex items-center gap-2 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Create First Project</span>
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {projectsList.map(proj => {
+                const results = (state.projectResults || []).filter(r => r.projectId === proj.id);
+                const classObj = state.classes.find(c => c.id === proj.classId);
+                const enrolled = classObj ? studentsOf(classObj.id, state) : [];
+                const gradedCount = results.filter(r => r.total > 0 || r.topic || Object.keys(r.scores || {}).length > 0).length;
+
+                return (
+                  <div
+                    key={proj.id}
+                    className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-4"
+                  >
+                    <div className="space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300">
+                            Project
+                          </span>
+                          <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                            {classObj?.name || 'Class'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingProject(proj);
+                              setIsCreateProjectModalOpen(true);
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-purple-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                            title="Edit Project"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeleteConfirmItem({ id: proj.id, title: proj.name, kind: 'project' })}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                            title="Delete Project"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <h3 className="text-base font-bold text-slate-900 dark:text-white line-clamp-1">
+                          {proj.name}
+                        </h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 mt-1">
+                          {proj.description || 'Presentation project scoring sheet with rubric.'}
+                        </p>
+                      </div>
+
+                      {/* Criteria summary tags */}
+                      <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                          {proj.criteria.length} criteria
+                        </span>
+                        <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400">
+                          Max {proj.totalMax} pts
+                        </span>
+                        <span className="text-[10px] font-semibold text-slate-400">
+                          Date: {proj.date || 'N/A'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+                      <div className="text-[11px]">
+                        <span className="font-black text-purple-600 dark:text-purple-400">
+                          Graded {gradedCount}
+                        </span>
+                        <span className="text-slate-400"> / {enrolled.length}</span>
+                        <span
+                          className={`block text-[10px] font-bold ${
+                            proj.published
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : 'text-amber-500 dark:text-amber-400'
+                          }`}
+                        >
+                          {proj.published ? 'Published to Students' : 'Draft (Unpublished)'}
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setGradingProjectId(proj.id)}
+                        className="px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 transition-all"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5" />
+                        <span>Grade Students</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -2712,6 +2915,65 @@ export const TeacherActivityView: React.FC<TeacherActivityViewProps> = ({
           </div>
         </Modal>
       )}
+
+      {/* =================================================================== */}
+      {/* CREATE / EDIT PROJECT MODAL */}
+      {/* =================================================================== */}
+      <ProjectFormModal
+        isOpen={isCreateProjectModalOpen}
+        onClose={() => {
+          setIsCreateProjectModalOpen(false);
+          setEditingProject(null);
+        }}
+        onSave={async (project) => {
+          try {
+            await syncSaveProject(project);
+            onShowToast(`Project "${project.name}" saved successfully!`, 'success');
+            setIsCreateProjectModalOpen(false);
+            setEditingProject(null);
+          } catch (err: any) {
+            onShowToast('Failed to save project: ' + (err.message || String(err)), 'error');
+          }
+        }}
+        initialProject={editingProject}
+        classes={state.classes}
+        selectedClassId={selectedClassId}
+        onShowToast={onShowToast}
+      />
+
+      {/* =================================================================== */}
+      {/* PROJECT GRADING SHEET MODAL (Spreadsheet scoring table) */}
+      {/* =================================================================== */}
+      {activeGradingProject && (
+        <ProjectGradingSheetModal
+          isOpen={!!activeGradingProject}
+          onClose={() => setGradingProjectId(null)}
+          project={activeGradingProject}
+          className={state.classes.find(c => c.id === activeGradingProject.classId)?.name || 'Class'}
+          schoolName={state.profile.school || 'Central Academy'}
+          teacherName={state.profile.name || 'Instructor'}
+          enrolledStudents={studentsOf(activeGradingProject.classId, state)}
+          existingResults={(state.projectResults || []).filter(r => r.projectId === activeGradingProject.id)}
+          onSaveResults={async (results, publishStatus) => {
+            try {
+              await syncBatchSaveProjectResults(activeGradingProject.id, results, publishStatus);
+              onShowToast('Project scores saved successfully!', 'success');
+            } catch (err: any) {
+              onShowToast('Failed to save project results: ' + (err.message || String(err)), 'error');
+            }
+          }}
+          onTogglePublish={async (published) => {
+            try {
+              await syncPublishProject(activeGradingProject.id, published);
+              onShowToast(published ? 'Project results published to students!' : 'Project unpublished (draft)', 'info');
+            } catch (err: any) {
+              onShowToast('Failed to update publish status: ' + (err.message || String(err)), 'error');
+            }
+          }}
+          onShowToast={onShowToast}
+        />
+      )}
     </div>
   );
 };
+

@@ -167,6 +167,7 @@ export interface AuthUser {
   role: 'teacher' | 'student';
   studentId?: string; // set if student
   name: string;
+  uid?: string;
 }
 
 export interface CustomRecordItem {
@@ -469,12 +470,49 @@ export interface AppState {
   activityAttempts?: ActivityAttempt[];
   studentBadges?: StudentBadgeItem[];
   teacherNotifications?: TeacherNotificationItem[];
+  projects?: ProjectItem[];
+  projectResults?: ProjectResult[];
   telegramConfig?: {
     chatId: string;
     username?: string;
     name?: string;
     updatedAt: string;
   };
+}
+
+export interface ProjectCriterion {
+  id: string;
+  name: string;
+  maxMark: number;
+  order: number;
+  weight?: number;
+}
+
+export interface ProjectItem {
+  id: string; // proj_{uid}
+  name: string;
+  classId: string;
+  description?: string;
+  date: string; // YYYY-MM-DD
+  criteria: ProjectCriterion[];
+  totalMax: number;
+  published: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ProjectResult {
+  id: string; // pr_${projectId}_${studentId}
+  projectId: string;
+  studentId: string;
+  classId: string;
+  topic?: string;
+  scores: Record<string, number>; // criterionId -> number
+  total: number;
+  comment?: string;
+  published?: boolean;
+  gradedAt: string;
+  updatedAt?: string;
 }
 
 export interface StudentRankResult {
@@ -518,6 +556,122 @@ export type NavView =
   | 'classwork'
   | 'results'
   | 'report'
+  | 'games'
   | 'import'
   | 'adventure'
   | 'profile';
+
+// ==========================================
+// COHOST LIVE GAME TYPES (PHASE 1)
+// ==========================================
+
+export type CohostQuestionType = 'multi' | 'boolean';
+export type CohostPointsMultiplier = 'standard' | 'double' | 'none';
+export type CohostMusicMood = 'Chill' | 'Hype' | 'Mystery' | 'Party' | 'Epic' | 'Silent';
+
+export interface CohostQuestion {
+  id: string;
+  text: string;
+  type: CohostQuestionType;
+  options: string[]; // 2-4 options for multi; ['True', 'False'] for boolean
+  image?: string; // Optional resized base64 JPEG
+  time: 5 | 10 | 20 | 30 | 60 | 90;
+  points: CohostPointsMultiplier;
+  musicMood: CohostMusicMood;
+  explanation?: string;
+}
+
+export interface CohostGame {
+  id: string;
+  name: string;
+  classIds: string[];
+  shuffleQuestions: boolean;
+  streakBonus: boolean;
+  questionsCount: number;
+  questions: CohostQuestion[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CohostGameKeys {
+  id: string; // matches gameId
+  answers: Record<string, number>; // questionId -> correct option index (0..3)
+}
+
+export type CohostSessionState = 'lobby' | 'question' | 'reveal' | 'leaderboard' | 'podium' | 'ended';
+
+export interface CohostLeaderboardEntry {
+  playerId: string;
+  nickname: string;
+  score: number;
+  rank: number;
+  streak: number;
+  isGuest?: boolean;
+  realName?: string;
+  studentId?: string;
+}
+
+export interface CohostSession {
+  pin: string; // 6-digit PIN
+  gameId: string;
+  title: string;
+  classIds: string[];
+  state: CohostSessionState;
+  allowGuests: boolean;
+  currentQuestionIndex: number;
+  totalQuestions: number;
+  questionStartTime: number; // Server time in ms
+  timeLimitSeconds: number;
+  currentQuestion?: CohostQuestion;
+  revealedAnswerIndex?: number;
+  explanation?: string;
+  optionCounts?: Record<number, number>;
+  totalAnswersCount?: number;
+  leaderboard?: CohostLeaderboardEntry[];
+  isPaused?: boolean;
+  streakBonus?: boolean;
+  teacherUid: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CohostPlayer {
+  id: string; // Auth UID
+  nickname: string;
+  realName?: string;
+  studentId?: string;
+  isGuest: boolean;
+  score: number;
+  streak: number;
+  lastAnswerCorrect?: boolean;
+  lastPointsEarned?: number;
+  rank?: number;
+  joinedAt: string;
+}
+
+export interface CohostAnswer {
+  id: string; // ${questionIndex}_${playerId}
+  pin: string;
+  questionIndex: number;
+  playerId: string;
+  selectedOption: number;
+  submittedAt: string | any;
+}
+
+export interface CohostSavedResult {
+  id: string;
+  gameId: string;
+  gameTitle: string;
+  pin: string;
+  classIds: string[];
+  date: string;
+  results: Array<{
+    studentId: string;
+    studentName: string;
+    score: number;
+    rank: number;
+    correctCount: number;
+    totalQuestions: number;
+  }>;
+  savedAt: string;
+}

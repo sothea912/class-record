@@ -341,5 +341,66 @@ service cloud.firestore {
       allow create, update, delete: if isTeacher()
         || (isSignedIn() && request.resource.data.studentId != null && isStudent(request.resource.data.studentId));
     }
+
+    // Cohost Live Game Library: Questions and game metadata (no secret answers)
+    match /cohost_games/{gameId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isTeacher();
+    }
+
+    // Cohost Answer Keys: Strictly TEACHER ONLY! Students and guests have zero access.
+    match /cohost_keys/{gameId} {
+      allow read, write: if isTeacher();
+    }
+
+    // Cohost Live Sessions & Real-time Gameplay
+    match /cohost_sessions/{pin} {
+      // Teachers, enrolled students, and guests (including anonymous Auth) can read the session state
+      allow read: if isSignedIn();
+      // Only teachers can create, update, or delete sessions
+      allow create, update, delete: if isTeacher();
+
+      // Secret answer keys subcollection inside a session: Strictly TEACHER ONLY
+      match /keys/{docId} {
+        allow read, write: if isTeacher();
+      }
+
+      // Live Players in Lobby/Game
+      match /players/{playerId} {
+        allow read: if isSignedIn();
+        // Any signed-in user (student or guest) can join and register themselves
+        allow create: if isSignedIn();
+        // Player can update own status/score, or teacher can update/remove players
+        allow update: if isTeacher() || (isSignedIn() && request.auth.uid == playerId);
+        allow delete: if isTeacher() || (isSignedIn() && request.auth.uid == playerId);
+      }
+
+      // Live Player Answers
+      match /answers/{answerId} {
+        allow read: if isSignedIn();
+        // Players submit their own answer
+        allow create: if isSignedIn();
+        allow update, delete: if isTeacher();
+      }
+    }
+
+    // Cohost Saved Results (Enrolled Students Only)
+    match /cohost_saved_results/{resultId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isTeacher();
+    }
+
+    // Presentation Projects: Teacher-managed projects & criteria
+    match /projects/{projectId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isTeacher();
+    }
+
+    // Presentation Project Results: Teacher-entered scores for students
+    match /projectResults/{resultId} {
+      allow read: if isTeacher()
+        || (isSignedIn() && resource.data.studentId != null && isStudent(resource.data.studentId) && resource.data.published == true);
+      allow create, update, delete: if isTeacher();
+    }
   }
 }

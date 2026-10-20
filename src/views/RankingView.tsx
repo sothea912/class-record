@@ -11,6 +11,7 @@ import {
   Award,
   CheckCircle2,
   AlertTriangle,
+  FolderKanban,
 } from 'lucide-react';
 import { AppState, StudentRankResult } from '../types';
 import { computeResults, monthName, prevMonths, round1, thisMonth } from '../utils/helpers';
@@ -36,6 +37,9 @@ export const RankingView: React.FC<RankingViewProps> = ({
   const [search, setSearch] = useState<string>('');
   const [gradeFilter, setGradeFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [showProjects, setShowProjects] = useState<boolean>(true);
+
+  const classProjects = (state.projects || []).filter(p => currentClass && p.classId === currentClass.id);
 
   if (!currentClass) {
     return (
@@ -81,14 +85,27 @@ export const RankingView: React.FC<RankingViewProps> = ({
       onShowToast('No students to export in this period', 'error');
       return;
     }
+    const projectHeadCells = showProjects && classProjects.length > 0
+      ? classProjects.map(p => `<th class="num">${p.name} (Proj max ${p.totalMax})</th>`).join('')
+      : '';
     const headCells =
       subs.map(s => `<th class="num">${s.name}</th>`).join('') +
       (workMax ? `<th class="num">Classwork</th>` : '') +
-      `<th class="num">Attendance</th><th class="num">Total</th><th class="num">Average</th><th class="num">Percent</th><th class="num">Grade</th><th class="num">Status</th>`;
+      `<th class="num">Attendance</th><th class="num">Total</th><th class="num">Average</th><th class="num">Percent</th><th class="num">Grade</th><th class="num">Status</th>` +
+      projectHeadCells;
 
     const rowsHtml = rows
       .map(
-        r => `<tr>
+        r => {
+          const projectCells = showProjects && classProjects.length > 0
+            ? classProjects.map(p => {
+                const pr = (state.projectResults || []).find(res => res.projectId === p.id && res.studentId === r.student.id);
+                const hasScore = pr && (pr.total !== undefined || Object.keys(pr.scores || {}).length > 0);
+                return `<td class="num">${hasScore ? `${pr.total} / ${p.totalMax}` : `— / ${p.totalMax}`}</td>`;
+              }).join('')
+            : '';
+
+          return `<tr>
           <td class="num">${r.rank !== null ? r.rank : '—'}</td>
           <td><b>${r.student.name}</b>${r.student.studentNo ? ` (${r.student.studentNo})` : ''}</td>
           ${subs.map(s => `<td class="num">${r.per[s.id]?.got ?? '—'} / ${r.per[s.id]?.max || s.max}</td>`).join('')}
@@ -99,7 +116,9 @@ export const RankingView: React.FC<RankingViewProps> = ({
           <td class="num"><b>${r.pct !== null ? `${r.pct}%` : '—'}</b></td>
           <td class="num">${r.grade}</td>
           <td class="num ${r.status === 'Pass' ? 'badge-pass' : r.status === 'Fail' ? 'badge-fail' : ''}">${r.status}</td>
-        </tr>`
+          ${projectCells}
+        </tr>`;
+        }
       )
       .join('');
 
@@ -301,6 +320,25 @@ export const RankingView: React.FC<RankingViewProps> = ({
             </select>
           </div>
 
+          {classProjects.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowProjects(prev => !prev)}
+              className={`px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                showProjects
+                  ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shadow-xs'
+                  : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700 hover:bg-slate-200'
+              }`}
+              title="Toggle Project Mark column visibility"
+            >
+              <FolderKanban className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+              <span>{showProjects ? 'Hide Projects' : 'Show Projects'}</span>
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-purple-200/60 dark:bg-purple-900/60 font-black">
+                {classProjects.length}
+              </span>
+            </button>
+          )}
+
           <span className="ml-auto text-slate-400">
             Showing <b className="text-slate-700 dark:text-slate-200">{filteredRows.length}</b> students
           </span>
@@ -348,6 +386,16 @@ export const RankingView: React.FC<RankingViewProps> = ({
                   <th className="py-3 px-3 text-right">Percent</th>
                   <th className="py-3 px-3 text-center">Grade</th>
                   <th className="py-3 px-4 text-center">Status</th>
+                  {showProjects && classProjects.map(proj => (
+                    <th key={proj.id} className="py-3 px-3 text-right bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 font-bold border-l border-purple-200 dark:border-purple-800">
+                      <div className="truncate max-w-[130px]" title={proj.name}>
+                        {proj.name}
+                      </div>
+                      <div className="text-[9px] text-purple-500 dark:text-purple-400 lowercase font-normal">
+                        Project &middot; max {proj.totalMax}
+                      </div>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
@@ -499,6 +547,27 @@ export const RankingView: React.FC<RankingViewProps> = ({
                           <span className="text-slate-400 font-mono text-xs">—</span>
                         )}
                       </td>
+
+                      {/* Standalone Project Mark Columns (Toggleable) */}
+                      {showProjects && classProjects.map(proj => {
+                        const pResult = (state.projectResults || []).find(pr => pr.projectId === proj.id && pr.studentId === r.student.id);
+                        const hasScore = pResult && (pResult.total !== undefined || Object.keys(pResult.scores || {}).length > 0);
+                        const scoreVal = hasScore ? pResult.total : null;
+                        const pct = scoreVal !== null && proj.totalMax > 0 ? Math.round((scoreVal / proj.totalMax) * 100) : null;
+
+                        return (
+                          <td key={proj.id} className="py-3 px-3 text-right tabular-nums bg-purple-50/20 dark:bg-purple-950/10 border-l border-purple-100 dark:border-purple-900/30">
+                            {scoreVal !== null ? (
+                              <div>
+                                <span className="font-bold text-purple-700 dark:text-purple-300 text-xs">{scoreVal}</span>
+                                <span className="text-[10px] text-slate-400 block font-normal">/ {proj.totalMax} {pct !== null ? `(${pct}%)` : ''}</span>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 font-mono text-xs">— / {proj.totalMax}</span>
+                            )}
+                          </td>
+                        );
+                      })}
                     </tr>
                   );
                 })}

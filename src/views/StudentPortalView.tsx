@@ -50,6 +50,9 @@ import {
   Lock,
   Loader2,
   Copy,
+  Gamepad2,
+  ArrowRight,
+  ArrowLeft,
 } from 'lucide-react';
 import {
   AppState,
@@ -93,6 +96,10 @@ import { LeaveRequestFormModal } from '../components/LeaveRequestFormModal';
 import { LeaveRequestResultsModal } from '../components/LeaveRequestResultsModal';
 import { ResourceLibraryView } from './ResourceLibraryView';
 import { StudentActivityView } from './StudentActivityView';
+import { StudentCohostView } from './StudentCohostView';
+import { StudentTaskResultView } from './StudentTaskResultView';
+import { subscribeToActiveLiveGameForClasses } from '../utils/cohostSync';
+import { CohostSession } from '../types';
 
 interface StudentPortalViewProps {
   state: AppState;
@@ -108,7 +115,7 @@ interface StudentPortalViewProps {
   firestoreStatus?: 'connected' | 'connecting' | 'offline';
 }
 
-type PortalTab = 'overview' | 'activity' | 'attendance' | 'library' | 'results' | 'classes' | 'profile';
+type PortalTab = 'overview' | 'activity' | 'games' | 'attendance' | 'library' | 'results' | 'classes' | 'profile' | 'task-results';
 
 export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
   state,
@@ -126,26 +133,8 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
   // Single source of truth: the student's document in the `students` collection via state.students
   const student = state.students.find(s => s.id === studentId);
 
-  if (!student) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-[#0C0C0C] text-slate-800 dark:text-slate-200 p-6">
-        <div className="max-w-md w-full bg-white dark:bg-[#141414] border border-slate-200 dark:border-[#262626] rounded-3xl p-8 shadow-xl text-center space-y-4">
-          <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center mx-auto text-xl font-bold">
-            🎓
-          </div>
-          <h2 className="text-lg font-bold">Loading Student Profile...</h2>
-          <p className="text-xs text-slate-500">Connecting to student record database...</p>
-          <button
-            type="button"
-            onClick={onLogout}
-            className="px-4 py-2 bg-slate-100 dark:bg-[#202020] hover:bg-slate-200 dark:hover:bg-[#282828] text-xs font-semibold rounded-xl transition-colors cursor-pointer"
-          >
-            Sign Out
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // Active Cohost live games for student's enrolled classes
+  const [liveCohostGames, setLiveCohostGames] = useState<CohostSession[]>([]);
 
   // Tab navigation
   const [activeTab, setActiveTab] = useState<PortalTab>('overview');
@@ -181,6 +170,15 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
     def.overallScore = def.xp + attendanceContrib;
     return def;
   }, [state.studentProgress, studentId, state.attendance]);
+
+  // Subscribe to live Cohost games for this student's enrolled classes
+  React.useEffect(() => {
+    if (!student?.classIds || student.classIds.length === 0) return;
+    const unsub = subscribeToActiveLiveGameForClasses(student.classIds, sessions => {
+      setLiveCohostGames(sessions);
+    });
+    return () => unsub();
+  }, [student?.classIds]);
 
   // Streak reset/daily quests checklist reset auto-sync logic
   React.useEffect(() => {
@@ -1594,6 +1592,7 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                 {[
                   { id: 'overview' as const, label: 'Overview', icon: Activity },
                   { id: 'activity' as const, label: 'Class Activity', icon: Sparkles },
+                  { id: 'games' as const, label: 'Games', icon: Gamepad2 },
                   { id: 'attendance' as const, label: 'Attendance', icon: CalendarCheck },
                   { id: 'library' as const, label: 'Resource Library', icon: BookOpen },
                   { id: 'results' as const, label: 'Scores & Results', icon: Trophy },
@@ -1622,6 +1621,12 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                           <span
                             className="w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white dark:ring-[#141414] shadow-xs animate-dot-pulse shrink-0"
                             title={`${activityToDoCount} to do`}
+                          />
+                        )}
+                        {item.id === 'games' && liveCohostGames.length > 0 && (
+                          <span
+                            className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-[#141414] shadow-xs motion-safe:animate-ping shrink-0"
+                            title="Live Cohost game is running!"
                           />
                         )}
                         {isActive && (
@@ -1748,6 +1753,25 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
 
                   <button
                     type="button"
+                    onClick={() => { setActiveTab('games'); setIsQuickNavOpen(false); }}
+                    className="w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-left font-bold text-slate-800 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/10 active:scale-[0.98] transition-all cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-7 h-7 rounded-lg bg-indigo-500/15 text-indigo-500 flex items-center justify-center shrink-0">
+                        <Gamepad2 className="w-4 h-4" />
+                      </div>
+                      <span className="truncate">Games</span>
+                    </div>
+                    {liveCohostGames.length > 0 && (
+                      <span
+                        className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-[#161618] shadow-xs motion-safe:animate-ping shrink-0 ml-2"
+                        title="Live Cohost game is running!"
+                      />
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => { setIsLeaveFormOpen(true); setIsQuickNavOpen(false); }}
                     className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left font-bold text-slate-800 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/10 active:scale-[0.98] transition-all cursor-pointer"
                   >
@@ -1802,17 +1826,26 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                 <span className="text-[9px] font-black mt-0.5 tracking-tight truncate">Home</span>
               </button>
 
+              {/* Game Tab with unique glow / live indicator */}
               <button
                 type="button"
-                onClick={() => setActiveTab('attendance')}
-                className={`flex-1 min-w-0 flex flex-col items-center justify-center py-1 sm:py-1.5 rounded-full transition-all active:scale-95 ${
-                  activeTab === 'attendance'
-                    ? 'text-[#4BA95F] bg-[#4BA95F]/15 font-black'
+                onClick={() => setActiveTab('games')}
+                className={`flex-1 min-w-0 flex flex-col items-center justify-center py-1 sm:py-1.5 rounded-full transition-all active:scale-95 relative ${
+                  activeTab === 'games'
+                    ? 'text-cyan-300 bg-cyan-500/20 font-black ring-1 ring-cyan-400/50 shadow-sm'
+                    : liveCohostGames.length > 0
+                    ? 'text-fuchsia-400 bg-fuchsia-500/15 font-black animate-pulse'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                <CalendarCheck className="w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0" />
-                <span className="text-[9px] font-black mt-0.5 tracking-tight truncate">Attendance</span>
+                {liveCohostGames.length > 0 && (
+                  <span className="absolute top-1 right-3 flex h-2 w-2" title="Game Live">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500" />
+                  </span>
+                )}
+                <Gamepad2 className={`w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0 ${liveCohostGames.length > 0 ? 'text-fuchsia-400 animate-bounce' : 'text-cyan-400 animate-pulse'}`} />
+                <span className="text-[9px] font-black mt-0.5 tracking-tight truncate">Game</span>
               </button>
 
               <button
@@ -1879,7 +1912,7 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
           {/* 1. STUDENT OVERVIEW DASHBOARD (MAIN LANDING PAGE) */}
           {/* =================================================================== */}
           {activeTab === 'overview' && (
-            <div className="space-y-6">
+            <div className="space-y-6 pb-32">
               {/* Profile-only Welcome Banner */}
               <div className="bg-gradient-to-r from-blue-600 via-blue-800 to-indigo-900 dark:from-purple-800 dark:via-indigo-900 dark:to-purple-950 text-white border border-blue-400/30 dark:border-purple-500/20 rounded-3xl p-4 sm:p-5 shadow-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3.5 sm:gap-5">
                 {/* Left side on Desktop / Top Row on Phone: Avatar + Info */}
@@ -1988,6 +2021,7 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                   onOpenReportCard={handleDownloadReportCard}
                   onNavigateTab={setActiveTab}
                   onOpenScoresOverlay={() => setIsScoresOverlayOpen(true)}
+                  onOpenTaskResults={() => setActiveTab('task-results')}
                 />
 
                 {/* Shared Version label directly below the six stat tiles with small gap, centered */}
@@ -1998,6 +2032,19 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                 </div>
               </div>
             </div>
+          )}
+
+          {/* =================================================================== */}
+          {/* TASK RESULT VIEW TAB */}
+          {/* =================================================================== */}
+          {activeTab === 'task-results' && (
+            <StudentTaskResultView
+              state={state}
+              studentId={studentId}
+              currentClassObj={currentClassObj}
+              onBack={() => setActiveTab('overview')}
+              onShowToast={onShowToast}
+            />
           )}
 
           {/* =================================================================== */}
@@ -2014,10 +2061,41 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
           )}
 
           {/* =================================================================== */}
+          {/* COHOST LIVE INTERACTIVE GAMES TAB */}
+          {/* =================================================================== */}
+          {activeTab === 'games' && (
+            <StudentCohostView
+              student={student}
+              enrolledClassIds={student.classIds || []}
+              onShowToast={onShowToast}
+              onExit={() => setActiveTab('overview')}
+            />
+          )}
+
+          {/* =================================================================== */}
           {/* 2. DEDICATED STUDENT ATTENDANCE INTERFACE */}
           {/* =================================================================== */}
           {activeTab === 'attendance' && (
-            <div className="space-y-6">
+            <div className="space-y-6 pb-32">
+              <div className="flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('overview')}
+                  className="w-10 h-10 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 transition-colors cursor-pointer shrink-0"
+                  aria-label="Back to overview"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <div>
+                  <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
+                    Attendance Overview &amp; Tracking
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Join time, lateness records &amp; daily history
+                  </p>
+                </div>
+              </div>
+
               <AttendanceJoinChart
                 joins={state.classJoins || []}
                 permissions={myPermRequests || []}

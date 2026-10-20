@@ -73,6 +73,9 @@ import {
   StudentBadgeItem,
   HomeworkQuestion,
   ClassworkType,
+  ProjectItem,
+  ProjectCriterion,
+  ProjectResult,
 } from '../types';
 import { scrubCamfirst } from './storage';
 import { attKey } from './helpers';
@@ -105,6 +108,8 @@ export const COLLECTIONS = {
   ACTIVITY_KEYS: 'activity_keys',
   STUDENT_BADGES: 'student_badges',
   TEACHER_NOTIFICATIONS: 'teacher_notifications',
+  PROJECTS: 'projects',
+  PROJECT_RESULTS: 'projectResults',
 } as const;
 
 /**
@@ -2372,6 +2377,46 @@ export function subscribeToFirestore(
   );
   unsubs.push(unsubBadges);
 
+  // 21. Projects
+  const qProjects = user.role === 'teacher'
+    ? collection(db, COLLECTIONS.PROJECTS)
+    : query(collection(db, COLLECTIONS.PROJECTS), where('published', '==', true));
+  const unsubProjects = onSnapshot(
+    qProjects,
+    snapshot => {
+      const projects: ProjectItem[] = [];
+      snapshot.forEach(d => {
+        projects.push(d.data() as ProjectItem);
+      });
+      console.log(`[Firestore Live] Projects synced (${projects.length} items)`);
+      onUpdate(prev => ({ ...prev, projects }));
+    },
+    error => {
+      console.warn('[Firestore] Projects listener error:', error);
+    }
+  );
+  unsubs.push(unsubProjects);
+
+  // 22. Project Results
+  const qProjectResults = user.role === 'teacher'
+    ? collection(db, COLLECTIONS.PROJECT_RESULTS)
+    : query(collection(db, COLLECTIONS.PROJECT_RESULTS), where('studentId', '==', user.studentId || auth.currentUser?.uid || ''));
+  const unsubProjectResults = onSnapshot(
+    qProjectResults,
+    snapshot => {
+      const projectResults: ProjectResult[] = [];
+      snapshot.forEach(d => {
+        projectResults.push(d.data() as ProjectResult);
+      });
+      console.log(`[Firestore Live] Project Results synced (${projectResults.length} items)`);
+      onUpdate(prev => ({ ...prev, projectResults }));
+    },
+    error => {
+      console.warn('[Firestore] Project Results listener error:', error);
+    }
+  );
+  unsubs.push(unsubProjectResults);
+
   return () => {
     unsubs.forEach(u => u());
   };
@@ -3415,4 +3460,116 @@ export async function syncReleaseActivityResults(activityId: string, studentId?:
     console.warn('[Firestore] Failed to release results:', err);
   }
 }
+
+/**
+ * Save / Update a Project item
+ */
+export async function syncSaveProject(project: ProjectItem): Promise<void> {
+  const path = `${COLLECTIONS.PROJECTS}/${project.id}`;
+  try {
+    const docRef = doc(db, COLLECTIONS.PROJECTS, project.id);
+    await setDoc(docRef, sanitizeForFirestore(project), { merge: true });
+    console.log(`[Firestore] Saved Project ${project.name} (${project.id})`);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+/**
+ * Delete a Project and its results
+ */
+export async function syncDeleteProject(projectId: string): Promise<void> {
+  const path = `${COLLECTIONS.PROJECTS}/${projectId}`;
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.PROJECTS, projectId));
+    // Also delete associated project results
+    const qResults = query(collection(db, COLLECTIONS.PROJECT_RESULTS), where('projectId', '==', projectId));
+    const snaps = await getDocs(qResults);
+    if (!snaps.empty) {
+      const batch = writeBatch(db);
+      snaps.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+    }
+    console.log(`[Firestore] Deleted Project and results for ${projectId}`);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+
+/**
+ * Save a single ProjectResult
+ */
+export async function syncSaveProjectResult(result: ProjectResult): Promise<void> {
+  const path = `${COLLECTIONS.PROJECT_RESULTS}/${result.id}`;
+  try {
+    const docRef = doc(db, COLLECTIONS.PROJECT_RESULTS, result.id);
+    await setDoc(docRef, sanitizeForFirestore(result), { merge: true });
+    console.log(`[Firestore] Saved ProjectResult ${result.id}`);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+/**
+ * Batch save multiple ProjectResults and optionally update published status on project
+ */
+export async function syncBatchSaveProjectResults(
+  projectId: string,
+  results: ProjectResult[],
+  published?: boolean
+): Promise<void> {
+  try {
+    const batch = writeBatch(db);
+    results.forEach(res => {
+      const docRef = doc(db, COLLECTIONS.PROJECT_RESULTS, res.id);
+      const dataToSave = published !== undefined ? { ...res, published } : res;
+      batch.set(docRef, sanitizeForFirestore(dataToSave), { merge: true });
+    });
+    if (published !== undefined) {
+      const projRef = doc(db, COLLECTIONS.PROJECTS, projectId);
+      batch.set(projRef, { published }, { merge: true });
+    }
+    await batch.commit();
+    console.log(`[Firestore] Batch saved ${results.length} ProjectResults for ${projectId}`);
+  } catch (err) {
+    console.error('[Firestore] Batch save ProjectResults failed:', err);
+    throw err;
+  }
+}
+
+/**
+ * Publish or unpublish all results for a project
+ */
+export async function syncPublishProject(projectId: string, published: boolean): Promise<void> {
+  try {
+    const batch = writeBatch(db);
+    const projRef = doc(db, COLLECTIONS.PROJECTS, projectId);
+    batch.set(projRef, { published }, { merge: true });
+
+    const qResults = query(collection(db, COLLECTIONS.PROJECT_RESULTS), where('projectId', '==', projectId));
+    const snaps = await getDocs(qResults);
+    snaps.forEach(d => {
+      batch.set(d.ref, { published }, { merge: true });
+    });
+    await batch.commit();
+    console.log(`[Firestore] Updated publish status for Project ${projectId} to ${published}`);
+  } catch (err) {
+    console.error('[Firestore] Failed to publish project:', err);
+    throw err;
+  }
+}
+
+/**
+ * Delete a single ProjectResult
+ */
+export async function syncDeleteProjectResult(resultId: string): Promise<void> {
+  const path = `${COLLECTIONS.PROJECT_RESULTS}/${resultId}`;
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.PROJECT_RESULTS, resultId));
+    console.log(`[Firestore] Deleted ProjectResult ${resultId}`);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+
 

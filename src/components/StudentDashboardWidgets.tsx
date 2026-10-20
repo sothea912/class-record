@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   CheckSquare,
   Trophy,
@@ -24,6 +24,7 @@ import {
   AlertCircle,
   HelpCircle,
   TrendingUp,
+  ClipboardCheck,
 } from 'lucide-react';
 import {
   AppState,
@@ -53,6 +54,7 @@ interface StudentDashboardWidgetsProps {
   onOpenReportCard: () => void;
   onNavigateTab: (tab: any) => void;
   onOpenScoresOverlay?: () => void;
+  onOpenTaskResults?: () => void;
 }
 
 export const StudentDashboardWidgets: React.FC<StudentDashboardWidgetsProps> = ({
@@ -66,9 +68,10 @@ export const StudentDashboardWidgets: React.FC<StudentDashboardWidgetsProps> = (
   onOpenReportCard,
   onNavigateTab,
   onOpenScoresOverlay,
+  onOpenTaskResults,
 }) => {
   // Modal states for expanded cards
-  const [activeModal, setActiveModal] = useState<'attendance' | 'rank' | 'schedule' | 'score' | 'subject_perf' | null>(null);
+  const [activeModal, setActiveModal] = useState<'rank' | 'schedule' | 'score' | 'subject_perf' | null>(null);
 
   // Data calculations
   const currentMonth = thisMonth();
@@ -86,6 +89,49 @@ export const StudentDashboardWidgets: React.FC<StudentDashboardWidgetsProps> = (
     : [];
 
   const nowMs = Date.now();
+
+  // Count of graded task results & unseen indicator
+  const gradedHomeworkCount = (state.homeworkSubmissions || []).filter(
+    s => s.studentId === student.id && (s.status === 'marked' || typeof s.score === 'number')
+  ).length;
+
+  const gradedActivitiesCount = (state.activityAttempts || []).filter(
+    a => a.studentId === student.id && (Boolean(a.markedAt) || typeof a.score === 'number')
+  ).length;
+
+  const publishedProjectIds = useMemo(() => {
+    return new Set((state.projects || []).filter(p => p.published).map(p => p.id));
+  }, [state.projects]);
+
+  const gradedProjectsCount = (state.projectResults || []).filter(
+    r => r.studentId === student.id && publishedProjectIds.has(r.projectId) && (r.published !== false)
+  ).length;
+
+  const totalGradedTasks = gradedHomeworkCount + gradedActivitiesCount + gradedProjectsCount;
+
+  // Unseen check
+  const hasUnseenTaskResult = useMemo(() => {
+    try {
+      const stored = localStorage.getItem(`seen_task_results_${student.id}`);
+      const seenSet = stored ? new Set(JSON.parse(stored)) : new Set();
+
+      const allGradedIds: string[] = [
+        ...(state.homeworkSubmissions || [])
+          .filter(s => s.studentId === student.id && (s.status === 'marked' || typeof s.score === 'number'))
+          .map(s => `hw_${s.homeworkId}`),
+        ...(state.activityAttempts || [])
+          .filter(a => a.studentId === student.id && (Boolean(a.markedAt) || typeof a.score === 'number'))
+          .map(a => `act_${a.activityId}`),
+        ...(state.projectResults || [])
+          .filter(r => r.studentId === student.id && publishedProjectIds.has(r.projectId) && (r.published !== false))
+          .map(r => `proj_${r.projectId}`),
+      ];
+
+      return allGradedIds.some(id => !seenSet.has(id));
+    } catch {
+      return false;
+    }
+  }, [state, student.id, publishedProjectIds]);
 
   // Published Homework for student's classes
   const relevantHomework = (state.homework || []).filter(
@@ -159,9 +205,12 @@ export const StudentDashboardWidgets: React.FC<StudentDashboardWidgetsProps> = (
         {/* Attendance Card */}
         <button
           type="button"
-          onClick={() => setActiveModal('attendance')}
-          className="h-[145px] sm:h-[155px] bg-white/90 dark:bg-[#121214]/90 backdrop-blur-xl border border-slate-200/80 dark:border-white/10 rounded-2xl p-3 sm:p-3.5 flex flex-col items-center justify-center text-center transition-all hover:-translate-y-0.5 hover:border-emerald-500/50 dark:hover:border-emerald-500/50 hover:shadow-md active:scale-95 shadow-xs group cursor-pointer"
+          onClick={() => onNavigateTab('attendance')}
+          className="relative h-[145px] sm:h-[155px] bg-white/90 dark:bg-[#121214]/90 backdrop-blur-xl border border-slate-200/80 dark:border-white/10 rounded-2xl p-3 sm:p-3.5 flex flex-col items-center justify-center text-center transition-all hover:-translate-y-0.5 hover:border-emerald-500/50 dark:hover:border-emerald-500/50 hover:shadow-md active:scale-95 shadow-xs group cursor-pointer"
         >
+          <span className="absolute top-2.5 right-2.5 text-slate-400 group-hover:translate-x-0.5 transition-transform" title="View details">
+            <ChevronRight className="w-3.5 h-3.5" />
+          </span>
           <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
             <CheckSquare className="w-5 h-5 animate-pulse-slow" />
           </div>
@@ -214,19 +263,33 @@ export const StudentDashboardWidgets: React.FC<StudentDashboardWidgetsProps> = (
           <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 mt-1 leading-none">Score</span>
         </button>
 
-        {/* Subject Performance Card */}
+        {/* Task Result Card (Replaced 0 Subs / Subject Perf) */}
         <button
           type="button"
-          onClick={() => setActiveModal('subject_perf')}
-          className="h-[145px] sm:h-[155px] bg-white/90 dark:bg-[#121214]/90 backdrop-blur-xl border border-slate-200/80 dark:border-white/10 rounded-2xl p-3 sm:p-3.5 flex flex-col items-center justify-center text-center transition-all hover:-translate-y-0.5 hover:border-blue-500/50 dark:hover:border-blue-500/50 hover:shadow-md active:scale-95 shadow-xs group cursor-pointer"
+          onClick={() => {
+            if (onOpenTaskResults) {
+              onOpenTaskResults();
+            } else {
+              onNavigateTab('task-results');
+            }
+          }}
+          className="relative h-[145px] sm:h-[155px] bg-white/90 dark:bg-[#121214]/90 backdrop-blur-xl border border-slate-200/80 dark:border-white/10 rounded-2xl p-3 sm:p-3.5 flex flex-col items-center justify-center text-center transition-all hover:-translate-y-0.5 hover:border-purple-500/50 dark:hover:border-purple-500/50 hover:shadow-md active:scale-95 shadow-xs group cursor-pointer"
         >
-          <div className="w-11 h-11 rounded-2xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
-            <FileText className="w-5 h-5" />
+          {hasUnseenTaskResult && (
+            <span
+              className="absolute top-2.5 right-2.5 flex h-2.5 w-2.5"
+              title="New graded task result available"
+            >
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 ring-2 ring-white dark:ring-[#121214] shadow-xs animate-dot-pulse" />
+            </span>
+          )}
+          <div className="w-11 h-11 rounded-2xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+            <ClipboardCheck className="w-5 h-5 text-purple-500" />
           </div>
           <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white block leading-tight">
-            {periodResults && periodResults.subs.length > 0 ? periodResults.subs.length : 0} Subs
+            {totalGradedTasks} Graded
           </span>
-          <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 mt-1 leading-none">Subject Perf</span>
+          <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 mt-1 leading-none">Task Result</span>
         </button>
 
         {/* Activity Card (Replaces Instructor Card) */}
@@ -273,38 +336,7 @@ export const StudentDashboardWidgets: React.FC<StudentDashboardWidgetsProps> = (
               <X className="w-5 h-5" />
             </button>
 
-            {/* Attendance Modal Content */}
-            {activeModal === 'attendance' && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
-                    <CheckSquare className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">Attendance Summary</h3>
-                    <p className="text-xs text-slate-500">Live attendance overview for this semester</p>
-                  </div>
-                </div>
 
-                <div className="grid grid-cols-2 gap-3 pt-2">
-                  <div className="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-100 dark:border-slate-800">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Present Count</span>
-                    <span className="text-lg font-black text-slate-900 dark:text-white block mt-0.5">{presentCount} sessions</span>
-                  </div>
-                  <div className="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-100 dark:border-slate-800">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Sessions</span>
-                    <span className="text-lg font-black text-slate-900 dark:text-white block mt-0.5">{totalAttSessions} sessions</span>
-                  </div>
-                </div>
-
-                <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-xs flex items-start gap-2">
-                  <Sparkles className="w-4 h-4 shrink-0 mt-0.5" />
-                  <p className="leading-relaxed">
-                    Attendance rate is calculated as total earned credit divided by sessions held so far this month (On-time: 1.0, Late: 0.75, Very late: 0.5, Excused: 0.5, Unexcused: 0).
-                  </p>
-                </div>
-              </div>
-            )}
 
             {/* Class Rank Modal Content */}
             {activeModal === 'rank' && (

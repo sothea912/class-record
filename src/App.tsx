@@ -79,6 +79,8 @@ import { StudentProfileView } from './views/StudentProfileView';
 import { ImportView } from './views/ImportView';
 import { AdventurerModeView } from './views/AdventurerModeView';
 import { TeacherActivityView } from './views/TeacherActivityView';
+import { TeacherCohostView } from './views/TeacherCohostView';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { SettingsModal } from './components/SettingsModal';
 
 export default function App() {
@@ -1177,6 +1179,16 @@ export default function App() {
                 state={state}
                 onShowToast={showToast}
               />
+            )}
+
+            {currentView === 'games' && (
+              <ErrorBoundary viewName="Games (Cohost)">
+                <TeacherCohostView
+                  state={state}
+                  onShowToast={showToast}
+                  authUserUid={authUser?.uid || 'teacher-admin'}
+                />
+              </ErrorBoundary>
             )}
           </main>
 

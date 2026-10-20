@@ -88,25 +88,18 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
   // Move / Change class modal state
   const [targetClassIds, setTargetClassIds] = useState<string[]>(student?.classIds || []);
 
-  if (!student) {
-    return (
-      <div className="p-8 text-center space-y-4">
-        <AlertTriangle className="w-12 h-12 text-amber-500 mx-auto" />
-        <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Student Not Found</h3>
-        <p className="text-sm text-slate-500">The requested student record could not be found or has been removed.</p>
-        <button
-          type="button"
-          onClick={onBack}
-          className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-semibold hover:bg-blue-700"
-        >
-          Return to Student Directory
-        </button>
-      </div>
-    );
-  }
-
   // Calculate student academic rankings and subject marks across all classes
   const academicSummary = useMemo(() => {
+    if (!student) {
+      return {
+        totalScore: 0,
+        maxScore: 0,
+        overallPct: null,
+        grade: '—',
+        subjectBreakdown: [],
+        classworkBreakdown: [],
+      };
+    }
     let totalScore = 0;
     let maxScore = 0;
     const subjectBreakdown: Array<{
@@ -172,10 +165,22 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
       subjectBreakdown,
       classworkBreakdown,
     };
-  }, [state.subjects, state.marks, state.classwork, state.classes, student.id]);
+  }, [state.subjects, state.marks, state.classwork, state.classes, student?.id]);
 
   // Calculate Attendance History
   const attendanceHistory = useMemo(() => {
+    if (!student) {
+      return {
+        presentCount: 0,
+        lateCount: 0,
+        excusedCount: 0,
+        unexcusedCount: 0,
+        totalSessions: 0,
+        totalCredit: 0,
+        rate: null,
+        historyList: [],
+      };
+    }
     let presentCount = 0;
     let lateCount = 0;
     let excusedCount = 0;
@@ -233,10 +238,27 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
 
   // Enrolled Classes
   const enrolledClasses = useMemo(() => {
-    return (student.classIds || [])
+    return (student?.classIds || [])
       .map(cid => state.classes.find(c => c.id === cid))
       .filter(Boolean) as ClassItem[];
-  }, [student.classIds, state.classes]);
+  }, [student?.classIds, state.classes]);
+
+  if (!student) {
+    return (
+      <div className="p-8 text-center space-y-4">
+        <AlertTriangle className="w-12 h-12 text-amber-500 mx-auto" />
+        <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Student Not Found</h3>
+        <p className="text-sm text-slate-500">The requested student record could not be found or has been removed.</p>
+        <button
+          type="button"
+          onClick={onBack}
+          className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-semibold hover:bg-blue-700"
+        >
+          Return to Student Directory
+        </button>
+      </div>
+    );
+  }
 
   // Handle Edit Save
   const handleSaveEdit = () => {

@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   AlertCircle,
   FileSpreadsheet,
+  FolderKanban,
 } from 'lucide-react';
 import { AppState, StudentRankResult } from '../types';
 import {
@@ -44,9 +45,12 @@ export const ResultBrowserView: React.FC<ResultBrowserViewProps> = ({
   const [activePeriod, setActivePeriod] = useState<string>('');
   const [sortBy, setSortBy] = useState<string>('rank');
   const [viewMode, setViewMode] = useState<'gallery' | 'list'>('gallery');
+  const [showProjects, setShowProjects] = useState<boolean>(true);
 
   // Selected student for detailed report card modal
   const [selectedStudentResult, setSelectedStudentResult] = useState<StudentRankResult | null>(null);
+
+  const classProjects = (state.projects || []).filter(p => currentClass && p.classId === currentClass.id);
 
   if (!currentClass) {
     return (
@@ -103,6 +107,24 @@ export const ResultBrowserView: React.FC<ResultBrowserViewProps> = ({
       )
       .join('');
 
+    const studentProjects = (state.projects || []).filter(p => p.classId === currentClass.id);
+    const projectSection = studentProjects.length > 0 ? `
+      <h2>Presentation Project Marks (Standalone Assessment)</h2>
+      <table>
+        <thead>
+          <tr><th>Project Name</th><th>Topic</th><th class="num">Score Earned</th><th class="num">Percent</th></tr>
+        </thead>
+        <tbody>
+          ${studentProjects.map(proj => {
+            const pr = (state.projectResults || []).find(res => res.projectId === proj.id && res.studentId === r.student.id);
+            const score = pr && pr.total !== undefined ? `${pr.total} / ${proj.totalMax}` : `— / ${proj.totalMax}`;
+            const pct = pr && pr.total !== undefined && proj.totalMax > 0 ? `${round1((pr.total / proj.totalMax) * 100)}%` : '—';
+            return `<tr><td><b>${proj.name}</b></td><td>${pr?.topic || '—'}</td><td class="num"><b>${score}</b></td><td class="num">${pct}</td></tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+      <p class="muted">Note: Project marks are standalone performance evaluations and not averaged into the main Merit score.</p>` : '';
+
     const body = `
       <table class="stats"><tr>
         <td><b>${r.total} / ${r.max}</b> total</td>
@@ -122,7 +144,8 @@ export const ResultBrowserView: React.FC<ResultBrowserViewProps> = ({
           <tr><td>Attendance & Conduct Score</td><td class="num">${att.score} / ${att.max}</td><td class="num">${att.max ? round1((att.score / att.max) * 100) : 0}%</td></tr>
         </tbody>
       </table>
-      <p class="muted">Attendance Record for Period: ${att.P} sessions present · ${att.L} late arrivals · ${att.E} excused absences (−${ATT_EXCUSED_PENALTY} pts each) · ${att.U} unexcused absences (−${ATT_UNEXCUSED_PENALTY} pt each).</p>`;
+      <p class="muted">Attendance Record for Period: ${att.P} sessions present · ${att.L} late arrivals · ${att.E} excused absences (−${ATT_EXCUSED_PENALTY} pts each) · ${att.U} unexcused absences (−${ATT_UNEXCUSED_PENALTY} pt each).</p>
+      ${projectSection}`;
 
     const subtitle = `${r.student.studentNo ? `${r.student.studentNo} · ` : ''}${currentClass.name} · ${ctxLabel} · ${state.profile.school || ''}`;
     downloadWordDoc(
@@ -376,6 +399,22 @@ export const ResultBrowserView: React.FC<ResultBrowserViewProps> = ({
                     </select>
                   </div>
 
+                  {classProjects.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowProjects(prev => !prev)}
+                      className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        showProjects
+                          ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
+                          : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                      }`}
+                      title="Toggle Project Mark column visibility"
+                    >
+                      <FolderKanban className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                      <span>{showProjects ? 'Hide Projects' : 'Projects'}</span>
+                    </button>
+                  )}
+
                   <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
                     <button
                       type="button"
@@ -468,6 +507,11 @@ export const ResultBrowserView: React.FC<ResultBrowserViewProps> = ({
                         <th className="py-3 px-4 text-right">Percent</th>
                         <th className="py-3 px-4 text-right">Total Score</th>
                         <th className="py-3 px-4 text-center">Status</th>
+                        {showProjects && classProjects.map(proj => (
+                          <th key={proj.id} className="py-3 px-3 text-right bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 font-bold border-l border-purple-200 dark:border-purple-800">
+                            {proj.name} (Proj)
+                          </th>
+                        ))}
                         <th className="py-3 px-4 text-right">Action</th>
                       </tr>
                     </thead>
@@ -495,6 +539,21 @@ export const ResultBrowserView: React.FC<ResultBrowserViewProps> = ({
                               {r.status}
                             </span>
                           </td>
+                          {showProjects && classProjects.map(proj => {
+                            const pr = (state.projectResults || []).find(res => res.projectId === proj.id && res.studentId === r.student.id);
+                            const hasScore = pr && (pr.total !== undefined || Object.keys(pr.scores || {}).length > 0);
+                            return (
+                              <td key={proj.id} className="py-3 px-3 text-right tabular-nums bg-purple-50/20 dark:bg-purple-950/10 border-l border-purple-100 dark:border-purple-900/30">
+                                {hasScore ? (
+                                  <span className="font-bold text-purple-700 dark:text-purple-300 text-xs">
+                                    {pr.total} / {proj.totalMax}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 font-mono text-xs">— / {proj.totalMax}</span>
+                                )}
+                              </td>
+                            );
+                          })}
                           <td className="py-3 px-4 text-right text-blue-600 font-semibold">
                             Open Card →
                           </td>
@@ -647,6 +706,88 @@ export const ResultBrowserView: React.FC<ResultBrowserViewProps> = ({
                     <p className="text-[11px] text-slate-400">
                       Attendance breakdown: {selectedStudentResult.att.P} present, {selectedStudentResult.att.L} late, {selectedStudentResult.att.E} excused (−5 each), {selectedStudentResult.att.U} unexcused (−1 each).
                     </p>
+
+                    {/* Standalone Project Marks Breakdown */}
+                    {(() => {
+                      const studentProjects = (state.projects || []).filter(p => p.classId === currentClass.id);
+                      if (studentProjects.length === 0) return null;
+
+                      return (
+                        <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                              <FolderKanban className="w-3.5 h-3.5 text-purple-600" />
+                              <span>Presentation Project Marks (Standalone)</span>
+                            </span>
+                            <span className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold">
+                              Not mixed with Merit
+                            </span>
+                          </div>
+
+                          <div className="space-y-2">
+                            {studentProjects.map(proj => {
+                              const pResult = (state.projectResults || []).find(
+                                pr => pr.projectId === proj.id && pr.studentId === selectedStudentResult.student.id
+                              );
+                              const hasScore = pResult && (pResult.total !== undefined || Object.keys(pResult.scores || {}).length > 0);
+                              const scoreVal = hasScore ? pResult.total : null;
+                              const pct = scoreVal !== null && proj.totalMax > 0 ? Math.round((scoreVal / proj.totalMax) * 100) : null;
+
+                              return (
+                                <div
+                                  key={proj.id}
+                                  className="p-3 bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200/70 dark:border-purple-800/50 rounded-xl space-y-2"
+                                >
+                                  <div className="flex items-center justify-between text-xs">
+                                    <div>
+                                      <span className="font-bold text-slate-900 dark:text-white block">
+                                        {proj.name}
+                                      </span>
+                                      {pResult?.topic && (
+                                        <span className="text-[11px] text-slate-500 italic block">
+                                          Topic: {pResult.topic}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-right">
+                                      <span className="font-extrabold text-sm text-purple-700 dark:text-purple-300">
+                                        {scoreVal !== null ? `${scoreVal} / ${proj.totalMax}` : `— / ${proj.totalMax}`}
+                                      </span>
+                                      {pct !== null && (
+                                        <span className="text-[10px] text-purple-500 block font-semibold">
+                                          {pct}%
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Criteria Breakdown */}
+                                  {pResult && Object.keys(pResult.scores || {}).length > 0 && (
+                                    <div className="pt-2 border-t border-purple-100 dark:border-purple-900/40 grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px]">
+                                      {proj.criteria.map(crit => {
+                                        const cScore = pResult.scores[crit.id] ?? 0;
+                                        return (
+                                          <div key={crit.id} className="flex justify-between items-center text-slate-600 dark:text-slate-300 bg-white/70 dark:bg-slate-900/70 px-2 py-1 rounded-md">
+                                            <span className="truncate pr-1">{crit.name}</span>
+                                            <span className="font-mono font-bold shrink-0">{cScore} / {crit.maxMark}</span>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+
+                                  {pResult?.comment && (
+                                    <p className="text-[11px] text-slate-600 dark:text-slate-300 bg-white/80 dark:bg-slate-900/80 p-2 rounded-lg italic">
+                                      "{pResult.comment}"
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </Modal>
               )}

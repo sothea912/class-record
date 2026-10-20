@@ -121,7 +121,7 @@ service cloud.firestore {
     // Attendance Sessions: Readable by signed-in users, writable by teacher;
     // Students can record their own auto-join attendance record
     match /attendance/{sessionId} {
-      allow read: if isSignedIn();
+      allow read: if isTeacher() || (isSignedIn() && resource.data.records[request.auth.uid] != null);
       allow create: if isTeacher()
         || (isSignedIn()
             && request.resource.data.studentId != null

@@ -1,4 +1,5 @@
 import { StudentProgress, DailyQuest, AttendanceSession } from '../types';
+import { getAttendanceCredit } from './helpers';
 
 export const AVATAR_OPTIONS = [
   { id: 'avatar_1', name: 'Scholar Dragon', icon: '🐲', color: 'from-amber-500 to-red-500' },
@@ -34,21 +35,18 @@ export function getLevelAndProgressFromXp(xp: number = 0) {
 
 export function calculateAttendanceScore(studentId: string, attendance: AttendanceSession[] = []): number {
   if (!attendance || attendance.length === 0) return 100;
-  let present = 0;
-  let total = 0;
+  let totalCredit = 0;
+  let totalSessions = 0;
 
   for (const session of attendance) {
     if (session.records && session.records[studentId]) {
-      total++;
-      const st = session.records[studentId].status;
-      if (st === 'P') present += 1;
-      else if (st === 'L') present += 0.8;
-      else if (st === 'E') present += 0.9;
+      totalSessions++;
+      totalCredit += getAttendanceCredit(session.records[studentId], 60); // Assuming 60 mins default duration
     }
   }
 
-  if (total === 0) return 100;
-  return Math.round((present / total) * 100);
+  if (totalSessions === 0) return 100;
+  return Math.round((totalCredit / totalSessions) * 100);
 }
 
 export function createDefaultProgress(studentId: string): StudentProgress {

@@ -1997,24 +1997,29 @@ export function subscribeToFirestore(
   unsubs.push(unsubSubjects);
 
   // 4. Attendance (Teacher sees all sessions & auto-joins, Student queries only their own auto-joins)
-  const qAttendance = user.role === 'teacher'
-    ? collection(db, COLLECTIONS.ATTENDANCE)
-    : query(collection(db, COLLECTIONS.ATTENDANCE), where('studentId', '==', user.studentId || auth.currentUser?.uid || ''));
+  const qAttendance = collection(db, COLLECTIONS.ATTENDANCE);
 
   const unsubAttendance = onSnapshot(
     qAttendance,
     snapshot => {
       const sessionMap = new Map<string, AttendanceSession>();
       const autoJoinList: any[] = [];
+      const sid = user?.studentId || auth.currentUser?.uid || '';
 
       snapshot.forEach(d => {
         const data = d.data();
         if (data.records) {
-          // Full teacher session document
-          sessionMap.set(data.id, data as AttendanceSession);
+          if (user?.role === 'teacher') {
+            sessionMap.set(data.id, data as AttendanceSession);
+          } else if (data.records[sid]) {
+            // Student portal: Only keep the record for this student
+            const filteredRecords = { [sid]: data.records[sid] };
+            sessionMap.set(data.id, { ...data, records: filteredRecords } as AttendanceSession);
+          }
         } else if (data.studentId && data.classId && data.date) {
-          // Individual auto-join document
-          autoJoinList.push(data);
+          if (user?.role === 'teacher' || data.studentId === sid) {
+            autoJoinList.push(data);
+          }
         }
       });
 

@@ -2403,15 +2403,15 @@ export function subscribeToFirestore(
   unsubs.push(unsubProjects);
 
   // 22. Project Results
-  const qProjectResults = user.role === 'teacher'
-    ? collection(db, COLLECTIONS.PROJECT_RESULTS)
-    : query(collection(db, COLLECTIONS.PROJECT_RESULTS), where('studentId', '==', user.studentId || auth.currentUser?.uid || ''));
+  const qProjectResults = collection(db, COLLECTIONS.PROJECT_RESULTS);
   const unsubProjectResults = onSnapshot(
     qProjectResults,
     snapshot => {
+      console.log('Project results query snapshot:', snapshot.size, 'documents');
       const projectResults: ProjectResult[] = [];
       snapshot.forEach(d => {
-        projectResults.push(d.data() as ProjectResult);
+        const data = d.data() as ProjectResult;
+        projectResults.push(data);
       });
       console.log(`[Firestore Live] Project Results synced (${projectResults.length} items)`);
       onUpdate(prev => ({ ...prev, projectResults }));

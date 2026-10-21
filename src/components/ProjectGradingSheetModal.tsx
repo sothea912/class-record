@@ -219,7 +219,7 @@ export const ProjectGradingSheetModal: React.FC<ProjectGradingSheetModalProps> =
           scores: cleanScores,
           total,
           comment: r.comment.trim(),
-          published: publishStatus,
+          published: publishStatus && (total > 0),
           gradedAt: now,
           updatedAt: now,
         };
